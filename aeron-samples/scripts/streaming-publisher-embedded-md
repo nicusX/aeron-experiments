@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#
+# Streaming Publisher using embedded Media Driver
+
+VERSION=$(cat ../../version.txt)
+
+${JAVA_HOME}/bin/java \
+    -cp ../../aeron-all/build/libs/aeron-all-${VERSION}.jar \
+    -XX:+UnlockExperimentalVMOptions \
+    -XX:+TrustFinalNonStaticFields \
+    -XX:+UseBiasedLocking \
+    -XX:BiasedLockingStartupDelay=0 \
+    -XX:+UseParallelOldGC \
+    -Dagrona.disable.bounds.checks=true \
+    -Daeron.sample.messageLength=32 \
+    -Daeron.sample.messages=500000000 \
+    -Daeron.sample.embeddedMediaDriver=true \
+    ${JVM_OPTS} io.aeron.samples.StreamingPublisher

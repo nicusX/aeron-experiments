@@ -29,6 +29,8 @@ import org.agrona.concurrent.IdleStrategy;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.console.ContinueBarrier;
 
+import java.net.Inet4Address;
+import java.net.UnknownHostException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -64,7 +66,7 @@ public class Ping
      * @param args passed to the process.
      * @throws InterruptedException if the thread is interrupted.
      */
-    public static void main(final String[] args) throws InterruptedException
+    public static void main(final String[] args) throws InterruptedException, UnknownHostException
     {
         final MediaDriver driver = EMBEDDED_MEDIA_DRIVER ? MediaDriver.launchEmbedded() : null;
         final Aeron.Context ctx = new Aeron.Context().availableImageHandler(Ping::availablePongImageHandler);
@@ -79,6 +81,8 @@ public class Ping
         System.out.println("Subscribing Pong at " + PONG_CHANNEL + " on stream id " + PONG_STREAM_ID);
         System.out.println("Message length of " + MESSAGE_LENGTH + " bytes");
         System.out.println("Using exclusive publications " + EXCLUSIVE_PUBLICATIONS);
+        System.out.println("My Canonical Host name: " + Inet4Address.getLocalHost().getCanonicalHostName());
+
 
         try (Aeron aeron = Aeron.connect(ctx);
             Subscription subscription = aeron.addSubscription(PONG_CHANNEL, PONG_STREAM_ID);

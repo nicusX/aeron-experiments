@@ -15,6 +15,8 @@
  */
 package io.aeron.samples;
 
+import java.net.Inet4Address;
+import java.net.UnknownHostException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.aeron.Aeron;
@@ -52,7 +54,7 @@ public class Pong
      *
      * @param args passed to the process.
      */
-    public static void main(final String[] args)
+    public static void main(final String[] args) throws UnknownHostException
     {
         final MediaDriver driver = EMBEDDED_MEDIA_DRIVER ? MediaDriver.launchEmbedded() : null;
 
@@ -73,6 +75,7 @@ public class Pong
         System.out.println("Subscribing Ping at " + PING_CHANNEL + " on stream id " + PING_STREAM_ID);
         System.out.println("Publishing Pong at " + PONG_CHANNEL + " on stream id " + PONG_STREAM_ID);
         System.out.println("Using exclusive publications " + EXCLUSIVE_PUBLICATIONS);
+        System.out.println("My Canonical Host name: " + Inet4Address.getLocalHost().getCanonicalHostName());
 
         final AtomicBoolean running = new AtomicBoolean(true);
         SigInt.register(() -> running.set(false));

@@ -22,6 +22,8 @@ import io.aeron.logbuffer.FragmentHandler;
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.SigInt;
 
+import java.net.Inet4Address;
+import java.net.UnknownHostException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -48,9 +50,10 @@ public class BasicSubscriber
      *
      * @param args passed to the process.
      */
-    public static void main(final String[] args)
+    public static void main(final String[] args) throws UnknownHostException
     {
         System.out.println("Subscribing to " + CHANNEL + " on stream id " + STREAM_ID);
+        System.out.println("My Canonical Host name: " + Inet4Address.getLocalHost().getCanonicalHostName());
 
         final MediaDriver driver = EMBEDDED_MEDIA_DRIVER ? MediaDriver.launchEmbedded() : null;
         final Aeron.Context ctx = new Aeron.Context()

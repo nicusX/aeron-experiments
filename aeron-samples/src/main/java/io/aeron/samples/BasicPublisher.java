@@ -22,6 +22,8 @@ import org.agrona.BufferUtil;
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.UnsafeBuffer;
 
+import java.net.Inet4Address;
+import java.net.UnknownHostException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -49,13 +51,16 @@ public class BasicPublisher
      * @param args passed to the process.
      * @throws InterruptedException if the thread sleep delay is interrupted.
      */
-    public static void main(final String[] args) throws InterruptedException
+    public static void main(final String[] args) throws InterruptedException, UnknownHostException
     {
         System.out.println("Publishing to " + CHANNEL + " on stream id " + STREAM_ID);
+        System.out.println("My Canonical Host name: " + Inet4Address.getLocalHost().getCanonicalHostName());
 
         // If configured to do so, create an embedded media driver within this application rather
         // than relying on an external one.
         final MediaDriver driver = EMBEDDED_MEDIA_DRIVER ? MediaDriver.launchEmbedded() : null;
+
+
 
         final Aeron.Context ctx = new Aeron.Context();
         if (EMBEDDED_MEDIA_DRIVER)
