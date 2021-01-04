@@ -17,16 +17,29 @@
 
 VERSION=$(cat ../../version.txt)
 
+if [ -z "$1" ] || [ -z "$2" ]; then
+  PING=aeron:udp?endpoint=pong:9000
+  PONG=aeron:udp?endpoint=ping:9001
+else
+  PING=aeron:udp?endpoint=$2:9000
+  PONG=aeron:udp?endpoint=$1:9001
+fi
+echo "Ping channel: $PING"
+echo "Pong channel: $PONG"
+
 ${JAVA_HOME}/bin/java \
     -cp ../../aeron-all/build/libs/aeron-all-${VERSION}.jar \
+    -Daeron.sample.embeddedMediaDriver=true \
     -XX:+UnlockExperimentalVMOptions \
     -XX:+TrustFinalNonStaticFields \
     -XX:+UnlockDiagnosticVMOptions \
     -XX:GuaranteedSafepointInterval=300000 \
     -XX:+UseParallelOldGC \
-    -Daeron.sample.messages=1000000 \
+    -Daeron.sample.messages=100000 \
     -Daeron.sample.messageLength=32 \
     -Dagrona.disable.bounds.checks=true \
     -Daeron.pre.touch.mapped.memory=true \
     -Daeron.sample.exclusive.publications=true \
+    "-Daeron.sample.ping.channel=${PING}" \
+    "-Daeron.sample.pong.channel=${PONG}" \
     ${JVM_OPTS} io.aeron.samples.Ping

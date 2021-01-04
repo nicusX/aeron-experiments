@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -x
+
+VERSION=$(cat ../../version.txt)
+
+if [ -z "$1" ]
+then
+  IP="localhost"
+else
+  IP=$1
+fi
+CHANNEL="aeron:udp?endpoint=${IP}:40456"
+
+
+if [ ! -z "$2" ]
+then
+  CHANNEL="${CHANNEL}|interface=$2"
+fi
+echo "Subscribing to $CHANNEL"
+
+${JAVA_HOME}/bin/java \
+    -cp ../../aeron-all/build/libs/aeron-all-${VERSION}.jar \
+    -Daeron.sample.embeddedMediaDriver=true \
+    -Daeron.sample.channel="${CHANNEL}" \
+    ${JVM_OPTS} io.aeron.samples.BasicSubscriber
