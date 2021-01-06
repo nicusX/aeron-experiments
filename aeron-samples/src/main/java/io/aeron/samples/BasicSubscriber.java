@@ -49,6 +49,8 @@ public class BasicSubscriber
      * Main method for launching the process.
      *
      * @param args passed to the process.
+     *
+     * @throws UnknownHostException if something is wrong with the canonical hostname (shouldn't)
      */
     public static void main(final String[] args) throws UnknownHostException
     {

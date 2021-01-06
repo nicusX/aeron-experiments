@@ -1,31 +1,18 @@
-/*
- * Copyright 2014-2020 Real Logic Limited.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package io.aeron.samples;
 
 import io.aeron.*;
 import io.aeron.driver.MediaDriver;
-import org.HdrHistogram.Histogram;
+import io.aeron.driver.ThreadingMode;
 import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.Header;
+import org.HdrHistogram.Histogram;
 import org.agrona.BitUtil;
 import org.agrona.BufferUtil;
 import org.agrona.CloseHelper;
 import org.agrona.DirectBuffer;
 import org.agrona.concurrent.BusySpinIdleStrategy;
 import org.agrona.concurrent.IdleStrategy;
+import org.agrona.concurrent.NoOpIdleStrategy;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.console.ContinueBarrier;
 
@@ -35,12 +22,15 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Ping component of Ping-Pong latency test recorded to a histogram to capture full distribution..
+ * Ping component of Ping-Pong latency test recorded to a histogram to capture full distribution,
+ * always using an embedded, low-latency MediaDriver
+ * Based on {@link Ping}
  * <p>
- * Initiates messages sent to {@link Pong} and records times.
- * @see Pong
+ * Initiates messages sent to {@link EmbeddedLowLatencyPong} and records times.
+ *
+ * @see EmbeddedLowLatencyPong
  */
-public class Ping
+public class EmbeddedLowLatencyPing
 {
     private static final int PING_STREAM_ID = SampleConfiguration.PING_STREAM_ID;
     private static final int PONG_STREAM_ID = SampleConfiguration.PONG_STREAM_ID;
@@ -49,7 +39,6 @@ public class Ping
     private static final int WARMUP_NUMBER_OF_ITERATIONS = SampleConfiguration.WARMUP_NUMBER_OF_ITERATIONS;
     private static final int MESSAGE_LENGTH = SampleConfiguration.MESSAGE_LENGTH;
     private static final int FRAGMENT_COUNT_LIMIT = SampleConfiguration.FRAGMENT_COUNT_LIMIT;
-    private static final boolean EMBEDDED_MEDIA_DRIVER = SampleConfiguration.EMBEDDED_MEDIA_DRIVER;
     private static final String PING_CHANNEL = SampleConfiguration.PING_CHANNEL;
     private static final String PONG_CHANNEL = SampleConfiguration.PONG_CHANNEL;
     private static final boolean EXCLUSIVE_PUBLICATIONS = SampleConfiguration.EXCLUSIVE_PUBLICATIONS;
@@ -69,14 +58,21 @@ public class Ping
      */
     public static void main(final String[] args) throws InterruptedException, UnknownHostException
     {
-        final MediaDriver driver = EMBEDDED_MEDIA_DRIVER ? MediaDriver.launchEmbedded() : null;
-        final Aeron.Context ctx = new Aeron.Context().availableImageHandler(Ping::availablePongImageHandler);
-        final FragmentHandler fragmentHandler = new FragmentAssembler(Ping::pongHandler);
+        // Always use embedded media driver
+        final MediaDriver.Context driverCtx = new MediaDriver.Context()
+            .termBufferSparseFile(false)
+            .useWindowsHighResTimer(true)
+            .threadingMode(ThreadingMode.DEDICATED)
+            .conductorIdleStrategy(BusySpinIdleStrategy.INSTANCE)
+            .receiverIdleStrategy(NoOpIdleStrategy.INSTANCE)
+            .senderIdleStrategy(NoOpIdleStrategy.INSTANCE);
+        final MediaDriver driver = MediaDriver.launchEmbedded(driverCtx);
 
-        if (EMBEDDED_MEDIA_DRIVER)
-        {
-            ctx.aeronDirectoryName(driver.aeronDirectoryName());
-        }
+        final Aeron.Context ctx = new Aeron.Context()
+            .availableImageHandler(EmbeddedLowLatencyPing::availablePongImageHandler);
+        final FragmentHandler fragmentHandler = new FragmentAssembler(EmbeddedLowLatencyPing::pongHandler);
+
+        ctx.aeronDirectoryName(driver.aeronDirectoryName());
 
         System.out.println("Publishing Ping at " + PING_CHANNEL + " on stream id " + PING_STREAM_ID);
         System.out.println("Subscribing Pong at " + PONG_CHANNEL + " on stream id " + PONG_STREAM_ID);
@@ -175,3 +171,4 @@ public class Ping
         }
     }
 }
+

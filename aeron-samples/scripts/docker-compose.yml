@@ -9,25 +9,25 @@ services:
 ## Use these to interactively run test scripts within the container
 ###################################################################
 
-#  publisher1:
-#    hostname: publisher1
-#    #    image: library/adoptopenjdk:11-jre
-#    build: .
-#    shm_size: 512M
-#    working_dir: /var/tmp/code/aeron-samples/scripts
-#    volumes:
-#      - ../..:/var/tmp/code/:rw
-#    tty: true
-#
-#  base-subscriber1:
-#    hostname: subscriber1
-#    #    image: library/adoptopenjdk:11-jre
-#    build: .
-#    shm_size: 512M
-#    working_dir: /var/tmp/code/aeron-samples/scripts
-#    volumes:
-#      - ../..:/var/tmp/code/:rw
-#    tty: true
+  publisher1:
+    hostname: publisher1
+    #    image: library/adoptopenjdk:11-jre
+    build: .
+    shm_size: 512M
+    working_dir: /var/tmp/code/aeron-samples/scripts
+    volumes:
+      - ../..:/var/tmp/code/:rw
+    tty: true
+
+  base-subscriber1:
+    hostname: subscriber1
+    #    image: library/adoptopenjdk:11-jre
+    build: .
+    shm_size: 512M
+    working_dir: /var/tmp/code/aeron-samples/scripts
+    volumes:
+      - ../..:/var/tmp/code/:rw
+    tty: true
 
 
 ####################################################################
@@ -166,93 +166,93 @@ services:
 ## Subscribers display the throughput on every sec
 #################################################################################
 
-  streaming-publisher1:
-    hostname: streaming-publisher1
-#    image: library/adoptopenjdk:11-jre
-    build: .
-    shm_size: 512M
-    working_dir: /var/tmp/code/aeron-samples/scripts
-    volumes:
-      - ../..:/var/tmp/code/:rw
-    entrypoint: >
-      bash -c "java -cp ../../aeron-all/build/libs/aeron-all-1.32.0-SNAPSHOT.jar \
-              -Daeron.sample.embeddedMediaDriver=true \
-              -XX:+UnlockExperimentalVMOptions \
-              -XX:+TrustFinalNonStaticFields \
-              -XX:+UseBiasedLocking \
-              -XX:BiasedLockingStartupDelay=0 \
-              -XX:+UseParallelOldGC \
-              -Dagrona.disable.bounds.checks=true \
-              -Daeron.sample.messageLength=32 \
-              -Daeron.sample.messages=500000000 \
-              -Daeron.sample.channel=\"aeron:udp?control=streaming-publisher1:9001|control-mode=dynamic|fc=min,t:2000ms\" \
-              io.aeron.samples.StreamingPublisher"
-    #     Default flow-control is "max" but causes one of the two consumers to stop consuming.
-    #     "min" force the producer to follow the slowest consumer, not cutting off anybody.
-    #     The actual use of the timeout "t:<time>" is not well documented.
-
-
-  rate-subscriber1:
-    hostname: rate-subscriber1
-#    image: library/adoptopenjdk:11-jre
-    build: .
-    shm_size: 512M
-    working_dir: /var/tmp/code/aeron-samples/scripts
-    volumes:
-      - ../..:/var/tmp/code/:rw
-    entrypoint: >
-      bash -c "java -cp ../../aeron-all/build/libs/aeron-all-1.32.0-SNAPSHOT.jar \
-              -Daeron.sample.embeddedMediaDriver=true \
-              -XX:+UnlockExperimentalVMOptions \
-              -XX:+TrustFinalNonStaticFields \
-              -XX:+UseBiasedLocking \
-              -XX:BiasedLockingStartupDelay=0 \
-              -XX:+UseParallelOldGC \
-              -Dagrona.disable.bounds.checks=true \
-              -Daeron.sample.frameCountLimit=256 \
-              -Daeron.sample.channel=\"aeron:udp?control=streaming-publisher1:9001|endpoint=rate-subscriber1:8000|control-mode=dynamic\" \
-              io.aeron.samples.RateSubscriber"
-
-
-  rate-subscriber2:
-    hostname: rate-subscriber2
-#    image: library/adoptopenjdk:11-jre
-    build: .
-    shm_size: 512M
-    working_dir: /var/tmp/code/aeron-samples/scripts
-    volumes:
-      - ../..:/var/tmp/code/:rw
-    entrypoint: >
-      bash -c "java -cp ../../aeron-all/build/libs/aeron-all-1.32.0-SNAPSHOT.jar \
-              -Daeron.sample.embeddedMediaDriver=true \
-              -XX:+UnlockExperimentalVMOptions \
-              -XX:+TrustFinalNonStaticFields \
-              -XX:+UseBiasedLocking \
-              -XX:BiasedLockingStartupDelay=0 \
-              -XX:+UseParallelOldGC \
-              -Dagrona.disable.bounds.checks=true \
-              -Daeron.sample.frameCountLimit=256 \
-              -Daeron.sample.channel=\"aeron:udp?control=streaming-publisher1:9001|endpoint=rate-subscriber2:8000|control-mode=dynamic\" \
-              io.aeron.samples.RateSubscriber"
-
-
-  rate-subscriber3:
-    hostname: rate-subscriber3
-#    image: library/adoptopenjdk:11-jre
-    build: .
-    shm_size: 512M
-    working_dir: /var/tmp/code/aeron-samples/scripts
-    volumes:
-      - ../..:/var/tmp/code/:rw
-    entrypoint: >
-      bash -c "java -cp ../../aeron-all/build/libs/aeron-all-1.32.0-SNAPSHOT.jar \
-              -Daeron.sample.embeddedMediaDriver=true \
-              -XX:+UnlockExperimentalVMOptions \
-              -XX:+TrustFinalNonStaticFields \
-              -XX:+UseBiasedLocking \
-              -XX:BiasedLockingStartupDelay=0 \
-              -XX:+UseParallelOldGC \
-              -Dagrona.disable.bounds.checks=true \
-              -Daeron.sample.frameCountLimit=256 \
-              -Daeron.sample.channel=\"aeron:udp?control=streaming-publisher1:9001|endpoint=rate-subscriber3:8000|control-mode=dynamic\" \
-              io.aeron.samples.RateSubscriber"
+#  streaming-publisher1:
+#    hostname: streaming-publisher1
+##    image: library/adoptopenjdk:11-jre
+#    build: .
+#    shm_size: 512M
+#    working_dir: /var/tmp/code/aeron-samples/scripts
+#    volumes:
+#      - ../..:/var/tmp/code/:rw
+#    entrypoint: >
+#      bash -c "java -cp ../../aeron-all/build/libs/aeron-all-1.32.0-SNAPSHOT.jar \
+#              -Daeron.sample.embeddedMediaDriver=true \
+#              -XX:+UnlockExperimentalVMOptions \
+#              -XX:+TrustFinalNonStaticFields \
+#              -XX:+UseBiasedLocking \
+#              -XX:BiasedLockingStartupDelay=0 \
+#              -XX:+UseParallelOldGC \
+#              -Dagrona.disable.bounds.checks=true \
+#              -Daeron.sample.messageLength=32 \
+#              -Daeron.sample.messages=500000000 \
+#              -Daeron.sample.channel=\"aeron:udp?control=streaming-publisher1:9001|control-mode=dynamic|fc=min,t:2000ms\" \
+#              io.aeron.samples.StreamingPublisher"
+#    #     Default flow-control is "max" but causes one of the two consumers to stop consuming.
+#    #     "min" force the producer to follow the slowest consumer, not cutting off anybody.
+#    #     The actual use of the timeout "t:<time>" is not well documented.
+#
+#
+#  rate-subscriber1:
+#    hostname: rate-subscriber1
+##    image: library/adoptopenjdk:11-jre
+#    build: .
+#    shm_size: 512M
+#    working_dir: /var/tmp/code/aeron-samples/scripts
+#    volumes:
+#      - ../..:/var/tmp/code/:rw
+#    entrypoint: >
+#      bash -c "java -cp ../../aeron-all/build/libs/aeron-all-1.32.0-SNAPSHOT.jar \
+#              -Daeron.sample.embeddedMediaDriver=true \
+#              -XX:+UnlockExperimentalVMOptions \
+#              -XX:+TrustFinalNonStaticFields \
+#              -XX:+UseBiasedLocking \
+#              -XX:BiasedLockingStartupDelay=0 \
+#              -XX:+UseParallelOldGC \
+#              -Dagrona.disable.bounds.checks=true \
+#              -Daeron.sample.frameCountLimit=256 \
+#              -Daeron.sample.channel=\"aeron:udp?control=streaming-publisher1:9001|endpoint=rate-subscriber1:8000|control-mode=dynamic\" \
+#              io.aeron.samples.RateSubscriber"
+#
+#
+#  rate-subscriber2:
+#    hostname: rate-subscriber2
+##    image: library/adoptopenjdk:11-jre
+#    build: .
+#    shm_size: 512M
+#    working_dir: /var/tmp/code/aeron-samples/scripts
+#    volumes:
+#      - ../..:/var/tmp/code/:rw
+#    entrypoint: >
+#      bash -c "java -cp ../../aeron-all/build/libs/aeron-all-1.32.0-SNAPSHOT.jar \
+#              -Daeron.sample.embeddedMediaDriver=true \
+#              -XX:+UnlockExperimentalVMOptions \
+#              -XX:+TrustFinalNonStaticFields \
+#              -XX:+UseBiasedLocking \
+#              -XX:BiasedLockingStartupDelay=0 \
+#              -XX:+UseParallelOldGC \
+#              -Dagrona.disable.bounds.checks=true \
+#              -Daeron.sample.frameCountLimit=256 \
+#              -Daeron.sample.channel=\"aeron:udp?control=streaming-publisher1:9001|endpoint=rate-subscriber2:8000|control-mode=dynamic\" \
+#              io.aeron.samples.RateSubscriber"
+#
+#
+#  rate-subscriber3:
+#    hostname: rate-subscriber3
+##    image: library/adoptopenjdk:11-jre
+#    build: .
+#    shm_size: 512M
+#    working_dir: /var/tmp/code/aeron-samples/scripts
+#    volumes:
+#      - ../..:/var/tmp/code/:rw
+#    entrypoint: >
+#      bash -c "java -cp ../../aeron-all/build/libs/aeron-all-1.32.0-SNAPSHOT.jar \
+#              -Daeron.sample.embeddedMediaDriver=true \
+#              -XX:+UnlockExperimentalVMOptions \
+#              -XX:+TrustFinalNonStaticFields \
+#              -XX:+UseBiasedLocking \
+#              -XX:BiasedLockingStartupDelay=0 \
+#              -XX:+UseParallelOldGC \
+#              -Dagrona.disable.bounds.checks=true \
+#              -Daeron.sample.frameCountLimit=256 \
+#              -Daeron.sample.channel=\"aeron:udp?control=streaming-publisher1:9001|endpoint=rate-subscriber3:8000|control-mode=dynamic\" \
+#              io.aeron.samples.RateSubscriber"

@@ -50,6 +50,7 @@ public class BasicPublisher
      *
      * @param args passed to the process.
      * @throws InterruptedException if the thread sleep delay is interrupted.
+     * @throws UnknownHostException if something is wrong with the canonical hostname (shouldn't)
      */
     public static void main(final String[] args) throws InterruptedException, UnknownHostException
     {
