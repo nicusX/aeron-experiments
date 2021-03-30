@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import io.aeron.protocol.*;
 import org.agrona.MutableDirectBuffer;
 
 import static io.aeron.agent.CommonEventDissector.*;
-import static io.aeron.agent.CommonEventDissector.dissectLogHeader;
 import static io.aeron.agent.DriverEventCode.*;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
 import static org.agrona.BitUtil.SIZE_OF_INT;

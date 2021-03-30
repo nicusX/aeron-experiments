@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,6 @@ import io.aeron.test.SlowTest;
 import io.aeron.test.cluster.TestCluster;
 import io.aeron.test.cluster.TestNode;
 import org.agrona.CloseHelper;
-import org.agrona.LangUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
@@ -58,8 +57,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -83,8 +81,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -101,8 +98,8 @@ public class DynamicMembershipTest
             awaitElectionClosed(dynamicMember);
             assertEquals(FOLLOWER, dynamicMember.role());
 
-            cluster.connectClient();
             final int messageCount = 10;
+            cluster.connectClient();
             cluster.sendMessages(messageCount);
             cluster.awaitResponseMessageCount(messageCount);
             cluster.awaitServiceMessageCount(leader, messageCount);
@@ -110,8 +107,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -124,8 +120,8 @@ public class DynamicMembershipTest
         {
             final TestNode leader = cluster.awaitLeader();
 
-            cluster.connectClient();
             final int messageCount = 10;
+            cluster.connectClient();
             cluster.sendMessages(messageCount);
             cluster.awaitResponseMessageCount(messageCount);
             cluster.awaitServiceMessageCount(leader, messageCount);
@@ -136,8 +132,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -162,8 +157,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -176,8 +170,8 @@ public class DynamicMembershipTest
         {
             final TestNode leader = cluster.awaitLeader();
 
-            cluster.connectClient();
             final int messageCount = 10;
+            cluster.connectClient();
             cluster.sendMessages(messageCount);
             cluster.awaitResponseMessageCount(messageCount);
 
@@ -194,8 +188,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -208,10 +201,10 @@ public class DynamicMembershipTest
         {
             final TestNode leader = cluster.awaitLeader();
 
-            cluster.connectClient();
             final int preSnapshotMessageCount = 10;
             final int postSnapshotMessageCount = 7;
             final int totalMessageCount = preSnapshotMessageCount + postSnapshotMessageCount;
+            cluster.connectClient();
             cluster.sendMessages(preSnapshotMessageCount);
             cluster.awaitResponseMessageCount(preSnapshotMessageCount);
 
@@ -232,8 +225,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -247,7 +239,7 @@ public class DynamicMembershipTest
             final TestNode leader = cluster.awaitLeader();
             final TestNode follower = cluster.followers().get(0);
 
-            follower.terminationExpected(true);
+            follower.isTerminationExpected(true);
             leader.removeMember(follower.index(), false);
 
             cluster.awaitNodeTermination(follower);
@@ -258,8 +250,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -272,7 +263,7 @@ public class DynamicMembershipTest
         {
             final TestNode initialLeader = cluster.awaitLeader();
 
-            initialLeader.terminationExpected(true);
+            initialLeader.isTerminationExpected(true);
             initialLeader.removeMember(initialLeader.index(), false);
 
             cluster.awaitNodeTermination(initialLeader);
@@ -286,8 +277,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -304,7 +294,7 @@ public class DynamicMembershipTest
             awaitElectionClosed(dynamicMember);
             awaitMembershipSize(initialLeader, 4);
 
-            initialLeader.terminationExpected(true);
+            initialLeader.isTerminationExpected(true);
             initialLeader.removeMember(initialLeader.index(), false);
 
             cluster.awaitNodeTermination(initialLeader);
@@ -318,8 +308,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -337,7 +326,7 @@ public class DynamicMembershipTest
             awaitMembershipSize(initialLeader, 4);
 
             final int initialLeaderIndex = initialLeader.index();
-            initialLeader.terminationExpected(true);
+            initialLeader.isTerminationExpected(true);
             initialLeader.removeMember(initialLeaderIndex, false);
 
             cluster.awaitNodeTermination(initialLeader);
@@ -365,8 +354,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -385,8 +373,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 
@@ -408,9 +395,8 @@ public class DynamicMembershipTest
             assertEquals(leader.index(), clusterMembership.leaderMemberId);
             assertEquals("", clusterMembership.passiveMembersStr);
 
-            cluster.connectClient();
-
             final int messageCount = 10;
+            cluster.connectClient();
             cluster.sendMessages(messageCount);
             cluster.awaitResponseMessageCount(messageCount);
             cluster.awaitServicesMessageCount(messageCount);
@@ -423,8 +409,7 @@ public class DynamicMembershipTest
         }
         catch (final Throwable ex)
         {
-            cluster.dumpData(testInfo);
-            LangUtil.rethrowUnchecked(ex);
+            cluster.dumpData(testInfo, ex);
         }
     }
 }

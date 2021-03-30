@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ import static io.aeron.logbuffer.LogBufferDescriptor.*;
  * @see Aeron#addPublication(String, int)
  * @see BufferClaim
  */
-public class ConcurrentPublication extends Publication
+public final class ConcurrentPublication extends Publication
 {
     private final TermAppender[] termAppenders = new TermAppender[PARTITION_COUNT];
 
@@ -69,6 +69,9 @@ public class ConcurrentPublication extends Publication
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long availableWindow()
     {
         if (isClosed)

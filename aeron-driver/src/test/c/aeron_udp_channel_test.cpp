@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -411,6 +411,23 @@ TEST_F(UdpChannelTest, shouldHandleTooSmallBuffer)
     addr_in->sin6_port = UINT16_C(65535);
 
     ASSERT_LE(aeron_format_source_identity(buffer, AERON_NETUTIL_FORMATTED_MAX_LENGTH - 1, &addr), 0);
+}
+
+TEST_F(UdpChannelTest, shouldParseSocketBufferParameters)
+{
+    const char *uri = "aeron:udp?interface=localhost|endpoint=224.10.9.9:40124|so-sndbuf=8k|so-rcvbuf=4k";
+    ASSERT_EQ(parse_udp_channel(uri), 0) << aeron_errmsg();
+
+    ASSERT_EQ(8192u, m_channel->socket_sndbuf_length);
+    ASSERT_EQ(4096u, m_channel->socket_rcvbuf_length);
+}
+
+TEST_F(UdpChannelTest, shouldParseReceiverWindow)
+{
+    const char *uri = "aeron:udp?interface=localhost|endpoint=224.10.9.9:40124|rcv-wnd=8k";
+    ASSERT_EQ(parse_udp_channel(uri), 0) << aeron_errmsg();
+
+    ASSERT_EQ(8192u, m_channel->receiver_window_length);
 }
 
 TEST_P(UdpChannelNamesParameterisedTest, shouldBeValid)

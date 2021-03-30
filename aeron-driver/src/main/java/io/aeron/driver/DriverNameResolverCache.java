@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import org.agrona.concurrent.status.AtomicCounter;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-class DriverNameResolverCache implements AutoCloseable
+final class DriverNameResolverCache implements AutoCloseable
 {
     private static final int INVALID_INDEX = -1;
 
@@ -34,6 +34,9 @@ class DriverNameResolverCache implements AutoCloseable
         this.timeoutMs = timeoutMs;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
     }
@@ -135,7 +138,7 @@ class DriverNameResolverCache implements AutoCloseable
 
     private final Iterator iterator = new Iterator();
 
-    public static boolean byteSubsetEquals(final byte[] lhs, final byte[] rhs, final int length)
+    static boolean byteSubsetEquals(final byte[] lhs, final byte[] rhs, final int length)
     {
         if (lhs.length < length || rhs.length < length)
         {
@@ -153,7 +156,7 @@ class DriverNameResolverCache implements AutoCloseable
         return true;
     }
 
-    public static boolean byteSubsetEquals(final byte[] lhs, final String rhs)
+    static boolean byteSubsetEquals(final byte[] lhs, final String rhs)
     {
         final int length = rhs.length();
 
@@ -203,13 +206,13 @@ class DriverNameResolverCache implements AutoCloseable
         return INVALID_INDEX;
     }
 
-    static class CacheEntry
+    static final class CacheEntry
     {
         long deadlineMs;
         long timeOfLastActivityMs;
         int port;
-        byte type;
-        byte[] name;
+        final byte type;
+        final byte[] name;
         byte[] address;
 
         CacheEntry(
@@ -221,10 +224,10 @@ class DriverNameResolverCache implements AutoCloseable
             final int port)
         {
             this.name = name;
+            this.type = type;
             this.timeOfLastActivityMs = timeOfLastActivityMs;
             this.deadlineMs = deadlineMs;
             this.address = address;
-            this.type = type;
             this.port = port;
         }
     }

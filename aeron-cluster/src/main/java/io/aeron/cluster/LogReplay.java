@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,14 +19,12 @@ import io.aeron.*;
 import io.aeron.archive.client.AeronArchive;
 import io.aeron.cluster.client.ClusterException;
 import io.aeron.cluster.service.Cluster;
-import io.aeron.exceptions.AeronException;
 import org.agrona.CloseHelper;
 
 final class LogReplay
 {
     private final long startPosition;
     private final long stopPosition;
-    private final long leadershipTermId;
     private final int logSessionId;
     private final ConsensusModuleAgent consensusModuleAgent;
     private final ConsensusModule.Context ctx;
@@ -38,30 +36,20 @@ final class LogReplay
         final long recordingId,
         final long startPosition,
         final long stopPosition,
-        final long leadershipTermId,
-        final int logSessionId,
         final LogAdapter logAdapter,
         final ConsensusModule.Context ctx)
     {
         this.startPosition = startPosition;
         this.stopPosition = stopPosition;
-        this.leadershipTermId = leadershipTermId;
-        this.logSessionId = logSessionId;
         this.logAdapter = logAdapter;
         this.consensusModuleAgent = logAdapter.consensusModuleAgent();
         this.ctx = ctx;
 
-        final ChannelUri channelUri = ChannelUri.parse(ctx.replayChannel());
-        channelUri.put(CommonContext.SESSION_ID_PARAM_NAME, Integer.toString(logSessionId));
-        final String channel = channelUri.toString();
+        final String channel = ctx.replayChannel();
         final int streamId = ctx.replayStreamId();
         final long length = stopPosition - startPosition;
-        final long correlationId = ctx.aeron().nextCorrelationId();
-
-        logSubscription = ctx.aeron().addSubscription(channel, streamId);
-
-        archive.archiveProxy().replay(
-            recordingId, startPosition, length, channel, streamId, correlationId, archive.controlSessionId());
+        logSessionId = (int)archive.startReplay(recordingId, startPosition, length, channel, streamId);
+        logSubscription = ctx.aeron().addSubscription(ChannelUri.addSessionId(channel, logSessionId), streamId);
     }
 
     void close()
@@ -81,22 +69,21 @@ final class LogReplay
             {
                 if (image.joinPosition() != startPosition)
                 {
-                    throw new ClusterException("Image did not join at expected position", AeronException.Category.WARN);
+                    throw new ClusterException(
+                        "joinPosition=" + image.joinPosition() + " expected startPosition=" + startPosition,
+                        ClusterException.Category.WARN);
                 }
 
-                final String channel = logSubscription.channel();
-                final int streamId = logSubscription.streamId();
+                logAdapter.image(image);
                 consensusModuleAgent.awaitServicesReady(
-                    channel,
-                    streamId,
+                    logSubscription.channel(),
+                    logSubscription.streamId(),
                     logSessionId,
-                    leadershipTermId,
                     startPosition,
                     stopPosition,
                     true,
                     Cluster.Role.FOLLOWER);
 
-                logAdapter.image(image);
                 workCount += 1;
             }
         }
@@ -110,6 +97,8 @@ final class LogReplay
 
     boolean isDone()
     {
-        return logAdapter.image() != null && logAdapter.position() >= stopPosition;
+        return logAdapter.image() != null &&
+            logAdapter.position() >= stopPosition &&
+            consensusModuleAgent.state() != ConsensusModule.State.SNAPSHOT;
     }
 }

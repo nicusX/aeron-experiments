@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ typedef struct aeron_test_udp_bindings_state_stct
     int nak_count;
     int setup_count;
     int rttm_count;
+    int heartbeat_count;
 }
 aeron_test_udp_bindings_state_t;
 
@@ -110,6 +111,9 @@ int aeron_test_udp_channel_transport_sendmsg(
         case AERON_HDR_TYPE_RTTM:
             state->rttm_count++;
             break;
+
+        case AERON_HDR_TYPE_DATA:
+            state->heartbeat_count++;
 
         default:
             break;

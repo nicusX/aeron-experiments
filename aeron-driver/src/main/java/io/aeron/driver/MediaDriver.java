@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package io.aeron.driver;
 
+import io.aeron.Aeron;
 import io.aeron.CncFileDescriptor;
 import io.aeron.CommonContext;
 import io.aeron.driver.buffer.FileStoreLogFactory;
@@ -23,6 +24,7 @@ import io.aeron.driver.exceptions.ActiveDriverException;
 import io.aeron.driver.media.*;
 import io.aeron.driver.reports.LossReport;
 import io.aeron.driver.status.SystemCounters;
+import io.aeron.exceptions.AeronException;
 import io.aeron.exceptions.ConcurrentConcludeException;
 import io.aeron.logbuffer.BufferClaim;
 import io.aeron.logbuffer.LogBufferDescriptor;
@@ -37,9 +39,12 @@ import org.agrona.concurrent.status.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.net.StandardSocketOptions;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
+import java.nio.channels.DatagramChannel;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
@@ -404,7 +409,7 @@ public final class MediaDriver implements AutoCloseable
      * The context will be owned by {@link DriverConductor} after a successful
      * {@link MediaDriver#launch(Context)} and closed via {@link MediaDriver#close()}.
      */
-    public static class Context extends CommonContext
+    public static final class Context extends CommonContext
     {
         private boolean isClosed = false;
         private boolean printConfigurationOnStart = Configuration.printConfigurationOnStart();
@@ -436,6 +441,7 @@ public final class MediaDriver implements AutoCloseable
         private long nakMulticastMaxBackoffNs = Configuration.nakMulticastMaxBackoffNs();
         private long flowControlReceiverTimeoutNs = Configuration.flowControlReceiverTimeoutNs();
         private long reResolutionCheckIntervalNs = Configuration.reResolutionCheckIntervalNs();
+        private long conductorCycleThresholdNs = Configuration.conductorCycleThresholdNs();
 
         private int conductorBufferLength = Configuration.conductorBufferLength();
         private int toClientsBufferLength = Configuration.toClientsBufferLength();
@@ -470,6 +476,8 @@ public final class MediaDriver implements AutoCloseable
         private NanoClock nanoClock;
         private CachedEpochClock cachedEpochClock;
         private CachedNanoClock cachedNanoClock;
+        private CachedNanoClock senderCachedNanoClock;
+        private CachedNanoClock receiverCachedNanoClock;
         private ThreadingMode threadingMode;
         private ThreadFactory conductorThreadFactory;
         private ThreadFactory senderThreadFactory;
@@ -520,6 +528,11 @@ public final class MediaDriver implements AutoCloseable
         private MappedByteBuffer cncByteBuffer;
         private UnsafeBuffer cncMetaDataBuffer;
 
+        private int osDefaultSocketRcvbufLength = Aeron.NULL_VALUE;
+        private int osMaxSocketRcvbufLength = Aeron.NULL_VALUE;
+        private int osDefaultSocketSndbufLength = Aeron.NULL_VALUE;
+        private int osMaxSocketSndbufLength = Aeron.NULL_VALUE;
+
         /**
          * Perform a shallow copy of the object.
          *
@@ -565,6 +578,9 @@ public final class MediaDriver implements AutoCloseable
             }
         }
 
+        /**
+         * {@inheritDoc}
+         */
         public Context conclude()
         {
             super.conclude();
@@ -572,6 +588,7 @@ public final class MediaDriver implements AutoCloseable
             try
             {
                 concludeNullProperties();
+                resolveOsSocketBufLengths();
 
                 validateMtuLength(mtuLength);
                 validateMtuLength(ipcMtuLength);
@@ -1871,7 +1888,7 @@ public final class MediaDriver implements AutoCloseable
 
         /**
          * The {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration. This is updated
-         * once per duty cycle of the {@link DriverConductor}.
+         * once per work cycle of the {@link DriverConductor}.
          *
          * @return the {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration.
          */
@@ -1881,7 +1898,8 @@ public final class MediaDriver implements AutoCloseable
         }
 
         /**
-         * The {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration.
+         * The {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration for the
+         * {@link DriverConductor}.
          *
          * @param clock to be used.
          * @return this for a fluent API.
@@ -1889,6 +1907,54 @@ public final class MediaDriver implements AutoCloseable
         public Context cachedNanoClock(final CachedNanoClock clock)
         {
             cachedNanoClock = clock;
+            return this;
+        }
+
+        /**
+         * The {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration. This is updated
+         * once per work cycle of the {@link Sender}.
+         *
+         * @return the {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration.
+         */
+        public CachedNanoClock senderCachedNanoClock()
+        {
+            return senderCachedNanoClock;
+        }
+
+        /**
+         * The {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration for the
+         * {@link Sender}.
+         *
+         * @param clock to be used.
+         * @return this for a fluent API.
+         */
+        public Context senderCachedNanoClock(final CachedNanoClock clock)
+        {
+            senderCachedNanoClock = clock;
+            return this;
+        }
+
+        /**
+         * The {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration. This is updated
+         * once per work cycle of the {@link Receiver}.
+         *
+         * @return the {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration.
+         */
+        public CachedNanoClock receiverCachedNanoClock()
+        {
+            return receiverCachedNanoClock;
+        }
+
+        /**
+         * The {@link CachedNanoClock} as a source of time in nanoseconds for measuring duration for the
+         * {@link Receiver}.
+         *
+         * @param clock to be used.
+         * @return this for a fluent API.
+         */
+        public Context receiverCachedNanoClock(final CachedNanoClock clock)
+        {
+            receiverCachedNanoClock = clock;
             return this;
         }
 
@@ -2969,6 +3035,32 @@ public final class MediaDriver implements AutoCloseable
             return this;
         }
 
+        /**
+         * Set a threshold for the conductor work cycle time which when exceed it will increment the
+         * {@link io.aeron.driver.status.SystemCounterDescriptor#CONDUCTOR_CYCLE_TIME_THRESHOLD_EXCEEDED} counter.
+         *
+         * @param thresholdNs value in nanoseconds
+         * @return this for fluent API.
+         * @see Configuration#CONDUCTOR_CYCLE_THRESHOLD_PROP_NAME
+         * @see Configuration#CONDUCTOR_CYCLE_THRESHOLD_DEFAULT_NS
+         */
+        public Context conductorCycleThresholdNs(final long thresholdNs)
+        {
+            this.conductorCycleThresholdNs = thresholdNs;
+            return this;
+        }
+
+        /**
+         * Threshold for the conductor work cycle time which when exceed it will increment the
+         * {@link io.aeron.driver.status.SystemCounterDescriptor#CONDUCTOR_CYCLE_TIME_THRESHOLD_EXCEEDED} counter.
+         *
+         * @return threshold to track for the conductor work cycle time.
+         */
+        public long conductorCycleThresholdNs()
+        {
+            return conductorCycleThresholdNs;
+        }
+
         OneToOneConcurrentArrayQueue<Runnable> receiverCommandQueue()
         {
             return receiverCommandQueue;
@@ -3090,6 +3182,55 @@ public final class MediaDriver implements AutoCloseable
             return this;
         }
 
+        int osDefaultSocketRcvbufLength()
+        {
+            resolveOsSocketBufLengths();
+            return osDefaultSocketRcvbufLength;
+        }
+
+        int osMaxSocketRcvbufLength()
+        {
+            resolveOsSocketBufLengths();
+            return osMaxSocketRcvbufLength;
+        }
+
+        int osDefaultSocketSndbufLength()
+        {
+            resolveOsSocketBufLengths();
+            return osDefaultSocketSndbufLength;
+        }
+
+        int osMaxSocketSndbufLength()
+        {
+            resolveOsSocketBufLengths();
+            return osMaxSocketSndbufLength;
+        }
+
+        void resolveOsSocketBufLengths()
+        {
+            if (Aeron.NULL_VALUE != osMaxSocketRcvbufLength)
+            {
+                return;
+            }
+
+            try (DatagramChannel probe = DatagramChannel.open())
+            {
+                osDefaultSocketSndbufLength = probe.getOption(StandardSocketOptions.SO_SNDBUF);
+
+                probe.setOption(StandardSocketOptions.SO_SNDBUF, Integer.MAX_VALUE);
+                osMaxSocketSndbufLength = probe.getOption(StandardSocketOptions.SO_SNDBUF);
+
+                osDefaultSocketRcvbufLength = probe.getOption(StandardSocketOptions.SO_RCVBUF);
+
+                probe.setOption(StandardSocketOptions.SO_RCVBUF, Integer.MAX_VALUE);
+                osMaxSocketRcvbufLength = probe.getOption(StandardSocketOptions.SO_RCVBUF);
+            }
+            catch (final IOException ex)
+            {
+                throw new AeronException("probe socket: " + ex.toString(), ex);
+            }
+        }
+
         @SuppressWarnings({ "MethodLength", "deprecation" })
         void concludeNullProperties()
         {
@@ -3116,6 +3257,16 @@ public final class MediaDriver implements AutoCloseable
             if (null == cachedNanoClock)
             {
                 cachedNanoClock = new CachedNanoClock();
+            }
+
+            if (null == senderCachedNanoClock)
+            {
+                senderCachedNanoClock = new CachedNanoClock();
+            }
+
+            if (null == receiverCachedNanoClock)
+            {
+                receiverCachedNanoClock = new CachedNanoClock();
             }
 
             if (null == unicastFlowControlSupplier)
@@ -3368,6 +3519,9 @@ public final class MediaDriver implements AutoCloseable
             }
         }
 
+        /**
+         * {@inheritDoc}
+         */
         @SuppressWarnings("MethodLength")
         public String toString()
         {
@@ -3408,6 +3562,7 @@ public final class MediaDriver implements AutoCloseable
                 "\n    nakMulticastGroupSize=" + nakMulticastGroupSize +
                 "\n    statusMessageTimeoutNs=" + statusMessageTimeoutNs +
                 "\n    counterFreeToReuseTimeoutNs=" + counterFreeToReuseTimeoutNs +
+                "\n    conductorCycleThresholdNs=" + conductorCycleThresholdNs +
                 "\n    publicationTermBufferLength=" + publicationTermBufferLength +
                 "\n    ipcTermBufferLength=" + ipcTermBufferLength +
                 "\n    publicationTermWindowLength=" + publicationTermWindowLength +

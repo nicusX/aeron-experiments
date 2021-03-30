@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.Supplier;
 
+import static io.aeron.CommonContext.ENDPOINT_PARAM_NAME;
 import static io.aeron.cluster.ConsensusModule.Configuration.*;
 import static io.aeron.cluster.service.ClusteredServiceContainer.Configuration.SNAPSHOT_CHANNEL_PROP_NAME;
 import static io.aeron.cluster.service.ClusteredServiceContainer.Configuration.SNAPSHOT_STREAM_ID_PROP_NAME;
@@ -188,6 +189,7 @@ public final class ConsensusModule implements AutoCloseable
     }
 
     private final Context ctx;
+    private final ConsensusModuleAgent conductor;
     private final AgentRunner conductorRunner;
 
     ConsensusModule(final Context ctx)
@@ -197,7 +199,7 @@ public final class ConsensusModule implements AutoCloseable
             ctx.conclude();
             this.ctx = ctx;
 
-            final ConsensusModuleAgent conductor = new ConsensusModuleAgent(ctx);
+            conductor = new ConsensusModuleAgent(ctx);
             conductorRunner = new AgentRunner(ctx.idleStrategy(), ctx.errorHandler(), ctx.errorCounter(), conductor);
         }
         catch (final ConcurrentConcludeException ex)
@@ -261,7 +263,7 @@ public final class ConsensusModule implements AutoCloseable
     /**
      * Configuration options for cluster.
      */
-    public static class Configuration
+    public static final class Configuration
     {
         /**
          * Type of snapshot for this component.
@@ -323,14 +325,13 @@ public final class ConsensusModule implements AutoCloseable
          * Default property for the list of cluster member endpoints.
          */
         public static final String CLUSTER_MEMBERS_DEFAULT =
-            "0,localhost:20000,localhost:20001,localhost:20002,localhost:20003,localhost:8010";
+            "0,localhost:20000,localhost:20001,localhost:20002,localhost:0,localhost:8010";
 
         /**
          * Property name for the comma separated list of cluster consensus endpoints used for adding passive
          * followers as well as dynamic join of a cluster.
          */
-        public static final String CLUSTER_CONSENSUS_ENDPOINTS_PROP_NAME =
-            "aeron.cluster.consensus.endpoints";
+        public static final String CLUSTER_CONSENSUS_ENDPOINTS_PROP_NAME = "aeron.cluster.consensus.endpoints";
 
         /**
          * Default property for the list of cluster consensus endpoints.
@@ -604,14 +605,14 @@ public final class ConsensusModule implements AutoCloseable
         public static final int ERROR_BUFFER_LENGTH_DEFAULT = 1024 * 1024;
 
         /**
-         * Timeout waiting for follower termination by leader.
+         * Timeout a leader will wait on getting termination ACKs from followers.
          */
         public static final String TERMINATION_TIMEOUT_PROP_NAME = "aeron.cluster.termination.timeout";
 
         /**
-         * Timeout waiting for follower termination by leader default value.
+         * Default timeout a leader will wait on getting termination ACKs from followers.
          */
-        public static final long TERMINATION_TIMEOUT_DEFAULT_NS = TimeUnit.SECONDS.toNanos(5);
+        public static final long TERMINATION_TIMEOUT_DEFAULT_NS = TimeUnit.SECONDS.toNanos(10);
 
         /**
          * Resolution in nanoseconds for each tick of the timer wheel for scheduling deadlines.
@@ -997,7 +998,7 @@ public final class ConsensusModule implements AutoCloseable
      * The context will be owned by {@link ConsensusModuleAgent} after a successful
      * {@link ConsensusModule#launch(Context)} and closed via {@link ConsensusModule#close()}.
      */
-    public static class Context implements Cloneable
+    public static final class Context implements Cloneable
     {
         /**
          * Using an integer because there is no support for boolean. 1 is concluded, 0 is not concluded.
@@ -1039,6 +1040,7 @@ public final class ConsensusModule implements AutoCloseable
         private int snapshotStreamId = Configuration.snapshotStreamId();
         private String consensusChannel = Configuration.consensusChannel();
         private int consensusStreamId = Configuration.consensusStreamId();
+        private int logFragmentLimit = ClusteredServiceContainer.Configuration.logFragmentLimit();
 
         private int serviceCount = Configuration.serviceCount();
         private int errorBufferLength = Configuration.errorBufferLength();
@@ -1079,6 +1081,7 @@ public final class ConsensusModule implements AutoCloseable
         private AuthenticatorSupplier authenticatorSupplier;
         private LogPublisher logPublisher;
         private EgressPublisher egressPublisher;
+        private boolean isLogMdc;
 
         /**
          * Perform a shallow copy of the object.
@@ -1269,6 +1272,16 @@ public final class ConsensusModule implements AutoCloseable
                     .controlRequestStreamId(AeronArchive.Configuration.localControlStreamId());
             }
 
+            if (!archiveContext.controlRequestChannel().startsWith(CommonContext.IPC_CHANNEL))
+            {
+                throw new ClusterException("archive control must be IPC");
+            }
+
+            if (!archiveContext.controlResponseChannel().startsWith(CommonContext.IPC_CHANNEL))
+            {
+                throw new ClusterException("archive control must be IPC");
+            }
+
             archiveContext
                 .aeron(aeron)
                 .errorHandler(countedErrorHandler)
@@ -1304,6 +1317,9 @@ public final class ConsensusModule implements AutoCloseable
             {
                 egressPublisher = new EgressPublisher();
             }
+
+            final ChannelUri channelUri = ChannelUri.parse(logChannel());
+            isLogMdc = channelUri.isUdp() && null == channelUri.get(ENDPOINT_PARAM_NAME);
 
             concludeMarkFile();
         }
@@ -1982,6 +1998,30 @@ public final class ConsensusModule implements AutoCloseable
         public int consensusStreamId()
         {
             return consensusStreamId;
+        }
+
+        /**
+         * Set the fragment limit to be used when polling the log {@link Subscription}.
+         *
+         * @param logFragmentLimit for this clustered service.
+         * @return this for a fluent API
+         * @see io.aeron.cluster.service.ClusteredServiceContainer.Configuration#LOG_FRAGMENT_LIMIT_DEFAULT
+         */
+        public Context logFragmentLimit(final int logFragmentLimit)
+        {
+            this.logFragmentLimit = logFragmentLimit;
+            return this;
+        }
+
+        /**
+         * Get the fragment limit to be used when polling the log {@link Subscription}.
+         *
+         * @return the fragment limit to be used when polling the log {@link Subscription}.
+         * @see io.aeron.cluster.service.ClusteredServiceContainer.Configuration#LOG_FRAGMENT_LIMIT_PROP_NAME
+         */
+        public int logFragmentLimit()
+        {
+            return logFragmentLimit;
         }
 
         /**
@@ -2925,6 +2965,11 @@ public final class ConsensusModule implements AutoCloseable
             return egressPublisher;
         }
 
+        boolean isLogMdc()
+        {
+            return isLogMdc;
+        }
+
         private void concludeMarkFile()
         {
             ClusterMarkFile.checkHeaderLength(
@@ -2951,5 +2996,15 @@ public final class ConsensusModule implements AutoCloseable
             markFile.updateActivityTimestamp(epochClock.time());
             markFile.signalReady();
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public String toString()
+    {
+        return "ConsensusModule{" +
+            "conductor=" + conductor +
+            '}';
     }
 }

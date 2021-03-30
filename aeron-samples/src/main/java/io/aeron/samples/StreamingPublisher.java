@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -109,7 +109,7 @@ public class StreamingPublisher
                     while (publication.offer(OFFER_BUFFER, 0, length, null) < 0L)
                     {
                         // The offer failed, which is usually due to the publication
-                        // being temporarily blocked.  Retry the offer after a short
+                        // being temporarily blocked. Retry the offer after a short
                         // spin/yield/sleep, depending on the chosen IdleStrategy.
                         backPressureCount++;
                         idleStrategy.idle();

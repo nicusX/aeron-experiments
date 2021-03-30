@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,8 +16,8 @@
 package io.aeron.archive;
 
 import org.agrona.CloseHelper;
-import org.agrona.ErrorHandler;
 import org.agrona.concurrent.AgentInvoker;
+import org.agrona.concurrent.CountedErrorHandler;
 
 final class SharedModeArchiveConductor extends ArchiveConductor
 {
@@ -69,7 +69,7 @@ final class SharedModeArchiveConductor extends ArchiveConductor
 
     class SharedModeRecorder extends SessionWorker<RecordingSession>
     {
-        SharedModeRecorder(final ErrorHandler errorHandler)
+        SharedModeRecorder(final CountedErrorHandler errorHandler)
         {
             super("archive-recorder", errorHandler);
         }
@@ -82,7 +82,7 @@ final class SharedModeArchiveConductor extends ArchiveConductor
 
     class SharedModeReplayer extends SessionWorker<ReplaySession>
     {
-        SharedModeReplayer(final ErrorHandler errorHandler)
+        SharedModeReplayer(final CountedErrorHandler errorHandler)
         {
             super("archive-replayer", errorHandler);
         }

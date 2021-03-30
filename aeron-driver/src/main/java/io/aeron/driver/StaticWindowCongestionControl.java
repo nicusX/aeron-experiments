@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -62,26 +62,43 @@ public class StaticWindowCongestionControl implements CongestionControl
         final MediaDriver.Context context,
         final CountersManager countersManager)
     {
-        ccOutcome = CongestionControl.packOutcome(Math.min(termLength >> 1, context.initialWindowLength()), false);
+        final int initialWindowLength = udpChannel.receiverWindowLength() != 0 ?
+            udpChannel.receiverWindowLength() : context.initialWindowLength();
+        ccOutcome = CongestionControl.packOutcome(Math.min(termLength >> 1, initialWindowLength), false);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean shouldMeasureRtt(final long nowNs)
     {
         return false;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onRttMeasurementSent(final long nowNs)
     {
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onRttMeasurement(final long nowNs, final long rttNs, final InetSocketAddress srcAddress)
     {
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long onTrackRebuild(
         final long nowNs,
         final long newConsumptionPosition,
@@ -94,6 +111,9 @@ public class StaticWindowCongestionControl implements CongestionControl
         return ccOutcome;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int initialWindowLength()
     {
         return CongestionControl.receiverWindowLength(ccOutcome);

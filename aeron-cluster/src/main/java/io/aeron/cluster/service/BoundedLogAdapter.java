@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,8 +29,7 @@ import static io.aeron.logbuffer.FrameDescriptor.*;
  */
 final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseable
 {
-    private static final int FRAGMENT_LIMIT = 100;
-
+    private final int fragmentLimit;
     private long maxLogPosition;
     private Image image;
     private final ClusteredServiceAgent agent;
@@ -44,9 +43,10 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
     private final NewLeadershipTermEventDecoder newLeadershipTermEventDecoder = new NewLeadershipTermEventDecoder();
     private final MembershipChangeEventDecoder membershipChangeEventDecoder = new MembershipChangeEventDecoder();
 
-    BoundedLogAdapter(final ClusteredServiceAgent agent)
+    BoundedLogAdapter(final ClusteredServiceAgent agent, final int fragmentLimit)
     {
         this.agent = agent;
+        this.fragmentLimit = fragmentLimit;
     }
 
     public void close()
@@ -122,7 +122,7 @@ final class BoundedLogAdapter implements ControlledFragmentHandler, AutoCloseabl
 
     int poll(final long limit)
     {
-        return image.boundedControlledPoll(this, limit, FRAGMENT_LIMIT);
+        return image.boundedControlledPoll(this, limit, fragmentLimit);
     }
 
     @SuppressWarnings("MethodLength")

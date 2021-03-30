@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -547,7 +547,7 @@ public class ClusterNodeRestartTest
         container = ClusteredServiceContainer.launch(
             new ClusteredServiceContainer.Context()
                 .clusteredService(service)
-                .terminationHook(ClusterTests.TERMINATION_HOOK)
+                .terminationHook(ClusterTests.NOOP_TERMINATION_HOOK)
                 .errorHandler(ClusterTests.errorHandler(0)));
     }
 
@@ -618,7 +618,7 @@ public class ClusterNodeRestartTest
         container = ClusteredServiceContainer.launch(
             new ClusteredServiceContainer.Context()
                 .clusteredService(service)
-                .terminationHook(ClusterTests.TERMINATION_HOOK)
+                .terminationHook(ClusterTests.NOOP_TERMINATION_HOOK)
                 .errorHandler(ClusterTests.errorHandler(0)));
     }
 

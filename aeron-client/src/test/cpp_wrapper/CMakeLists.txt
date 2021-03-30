@@ -1,5 +1,5 @@
 #
-# Copyright 2014-2020 Real Logic Limited.
+# Copyright 2014-2021 Real Logic Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -61,3 +61,4 @@ aeron_client_wrapper_test(livenessTimeoutTest LivenessTimeoutTest.cpp)
 aeron_client_native_test(livenessTimeoutTest LivenessTimeoutTest.cpp)
 
 aeron_client_wrapper_test(exceptionsTest ExceptionsTest.cpp)
+aeron_client_wrapper_test(channelUriStringBuilderTest ChannelUriStringBuilderTest.cpp)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package io.aeron.cluster;
 
+import io.aeron.Aeron;
 import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.status.RecordingPos;
 import io.aeron.cluster.client.ClusterException;
@@ -81,21 +82,56 @@ import static org.agrona.BitUtil.*;
  * </pre>
  * <p>The reserved bit on the entry type indicates whether the entry was marked invalid.</p>
  */
-public class RecordingLog implements AutoCloseable
+public final class RecordingLog implements AutoCloseable
 {
     /**
      * Representation of the entry in the {@link RecordingLog}.
      */
     public static final class Entry
     {
+        /**
+         * Identity of the recording in the archive.
+         */
         public final long recordingId;
+
+        /**
+         * Identity of the leadership term.
+         */
         public final long leadershipTermId;
+
+        /**
+         * The log position at the base of the leadership term.
+         */
         public final long termBaseLogPosition;
+
+        /**
+         * Position the log has reached for the entry.
+         */
         public final long logPosition;
+
+        /**
+         * Timestamp for the cluster clock in the time units configured for the cluster.
+         */
         public final long timestamp;
+
+        /**
+         * Identity of the service associated with the entry.
+         */
         public final int serviceId;
+
+        /**
+         * Type, or classification, of the entry, e.g. {@link #ENTRY_TYPE_TERM} or {@link #ENTRY_TYPE_SNAPSHOT}.
+         */
         public final int type;
+
+        /**
+         * Index of the entry in the recording log.
+         */
         public final int entryIndex;
+
+        /**
+         * Flag to indicate if the entry is invalid and thus should be ignored.
+         */
         public final boolean isValid;
 
         /**
@@ -112,7 +148,7 @@ public class RecordingLog implements AutoCloseable
          *                            marks it invalid.
          * @param entryIndex          of the entry on disk.
          */
-        public Entry(
+        Entry(
             final long recordingId,
             final long leadershipTermId,
             final long termBaseLogPosition,
@@ -134,7 +170,7 @@ public class RecordingLog implements AutoCloseable
             this.isValid = isValid;
         }
 
-        public Entry invalidate()
+        Entry invalidate()
         {
             return new Entry(
                 recordingId,
@@ -148,6 +184,9 @@ public class RecordingLog implements AutoCloseable
                 entryIndex);
         }
 
+        /**
+         * {@inheritDoc}
+         */
         public String toString()
         {
             return "Entry{" +
@@ -169,11 +208,34 @@ public class RecordingLog implements AutoCloseable
      */
     public static final class Snapshot
     {
+        /**
+         * Identity of the recording in the archive for the snapshot.
+         */
         public final long recordingId;
+
+        /**
+         * Identity of the leadership term.
+         */
         public final long leadershipTermId;
+
+        /**
+         * The log position at the base of the leadership term.
+         */
         public final long termBaseLogPosition;
+
+        /**
+         * Position the log has reached for the snapshot.
+         */
         public final long logPosition;
+
+        /**
+         * Timestamp for the cluster clock in the time units configured for the cluster at time of the snapshot.
+         */
         public final long timestamp;
+
+        /**
+         * Identity of the service associated with the snapshot.
+         */
         public final int serviceId;
 
         /**
@@ -186,7 +248,7 @@ public class RecordingLog implements AutoCloseable
          * @param timestamp           as which the snapshot was taken.
          * @param serviceId           which the snapshot belongs to.
          */
-        public Snapshot(
+        Snapshot(
             final long recordingId,
             final long leadershipTermId,
             final long termBaseLogPosition,
@@ -202,6 +264,9 @@ public class RecordingLog implements AutoCloseable
             this.serviceId = serviceId;
         }
 
+        /**
+         * {@inheritDoc}
+         */
         public String toString()
         {
             return "Snapshot{" +
@@ -220,18 +285,57 @@ public class RecordingLog implements AutoCloseable
      */
     public static final class Log
     {
+        /**
+         * Identity of the recording in the archive for the log.
+         */
         public final long recordingId;
+
+        /**
+         * Identity of the leadership term.
+         */
         public final long leadershipTermId;
+
+        /**
+         * The log position at the base of the leadership term.
+         */
         public final long termBaseLogPosition;
+
+        /**
+         * Position the log has reached for the term which can be {@link AeronArchive#NULL_POSITION} when not committed.
+         */
         public final long logPosition;
+
+        /**
+         * Start position of the recording captured in the archive.
+         */
         public final long startPosition;
+
+        /**
+         * Stop position of the recording captured in the archive.
+         */
         public final long stopPosition;
+
+        /**
+         * Initial term identity of the stream captured for the recording.
+         */
         public final int initialTermId;
+
+        /**
+         * Transport term buffer length of the stream captured for the recording.
+         */
         public final int termBufferLength;
+
+        /**
+         * Transport MTU length of the stream captured for the recording.
+         */
         public final int mtuLength;
+
+        /**
+         * Transport session identity of the stream captured for the recording.
+         */
         public final int sessionId;
 
-        public Log(
+        Log(
             final long recordingId,
             final long leadershipTermId,
             final long termBaseLogPosition,
@@ -255,6 +359,9 @@ public class RecordingLog implements AutoCloseable
             this.sessionId = sessionId;
         }
 
+        /**
+         * {@inheritDoc}
+         */
         public String toString()
         {
             return "Log{" +
@@ -275,16 +382,39 @@ public class RecordingLog implements AutoCloseable
     /**
      * The snapshots and steps to recover the state of a cluster.
      */
-    public static class RecoveryPlan
+    public static final class RecoveryPlan
     {
+        /**
+         * The last, i.e. most recent, leadership term identity for the log.
+         */
         public final long lastLeadershipTermId;
+
+        /**
+         * The last, i.e. most recent, leadership term base log position.
+         */
         public final long lastTermBaseLogPosition;
+
+        /**
+         * The position reached for local appended log.
+         */
         public final long appendedLogPosition;
+
+        /**
+         * The position reached for the local appended log for which the commit position is known.
+         */
         public final long committedLogPosition;
+
+        /**
+         * The most recent snapshots for the consensus module and services to accelerate recovery.
+         */
         public final ArrayList<Snapshot> snapshots;
+
+        /**
+         * The appended local log details.
+         */
         public final Log log;
 
-        public RecoveryPlan(
+        RecoveryPlan(
             final long lastLeadershipTermId,
             final long lastTermBaseLogPosition,
             final long appendedLogPosition,
@@ -301,21 +431,8 @@ public class RecordingLog implements AutoCloseable
         }
 
         /**
-         * Has the log to be replayed as part of the recovery plan?
-         *
-         * @return true if log replay is require otherwise false.
+         * {@inheritDoc}
          */
-        public boolean hasReplay()
-        {
-            boolean hasReplay = false;
-            if (null != log)
-            {
-                hasReplay = log.stopPosition > log.startPosition;
-            }
-
-            return hasReplay;
-        }
-
         public String toString()
         {
             return "RecoveryPlan{" +
@@ -683,13 +800,17 @@ public class RecordingLog implements AutoCloseable
      *
      * @param archive      to lookup recording descriptors.
      * @param serviceCount of services that may have snapshots.
+     * @param replicatedRecordingId leader's recordingId used for replicating
      * @return a new {@link RecoveryPlan} for the cluster.
      */
-    public RecoveryPlan createRecoveryPlan(final AeronArchive archive, final int serviceCount)
+    public RecoveryPlan createRecoveryPlan(
+        final AeronArchive archive,
+        final int serviceCount,
+        final long replicatedRecordingId)
     {
         final ArrayList<Snapshot> snapshots = new ArrayList<>();
         final MutableReference<Log> logRef = new MutableReference<>();
-        planRecovery(snapshots, logRef, entriesCache, archive, serviceCount);
+        planRecovery(snapshots, logRef, entriesCache, archive, serviceCount, replicatedRecordingId);
 
         long lastLeadershipTermId = NULL_VALUE;
         long lastTermBaseLogPosition = 0;
@@ -714,7 +835,7 @@ public class RecordingLog implements AutoCloseable
             lastLeadershipTermId = log.leadershipTermId;
             lastTermBaseLogPosition = log.termBaseLogPosition;
             appendedLogPosition = log.stopPosition;
-            committedLogPosition = NULL_VALUE != log.logPosition ? log.logPosition : committedLogPosition;
+            committedLogPosition = NULL_POSITION != log.logPosition ? log.logPosition : committedLogPosition;
         }
 
         return new RecoveryPlan(
@@ -771,7 +892,7 @@ public class RecordingLog implements AutoCloseable
     }
 
     /**
-     * Append a log entry for a leadership term.
+     * Append a log entry for a leadership term. Terms must be appended in ascending order.
      *
      * @param recordingId         of the log in the archive.
      * @param leadershipTermId    for the appended term.
@@ -784,11 +905,11 @@ public class RecordingLog implements AutoCloseable
         final int size = entriesCache.size();
         if (size > 0)
         {
-            final Entry lastEntry = entriesCache.get(size - 1);
-            if (lastEntry.type != NULL_VALUE && lastEntry.leadershipTermId >= leadershipTermId)
+            final Entry entry = findLastTerm();
+            if (null != entry && entry.leadershipTermId >= leadershipTermId)
             {
-                throw new ClusterException("leadershipTermId out of sequence: previous " +
-                    lastEntry.leadershipTermId + " this " + leadershipTermId);
+                throw new ClusterException("leadershipTermId out of sequence: last=" +
+                    entry.leadershipTermId + " appending=" + leadershipTermId);
             }
 
             final long previousLeadershipTermId = leadershipTermId - 1;
@@ -811,12 +932,12 @@ public class RecordingLog implements AutoCloseable
     }
 
     /**
-     * Append a log entry for a snapshot.
+     * Append a log entry for a snapshot. Snapshots must be for the current term.
      *
      * @param recordingId         in the archive for the snapshot.
      * @param leadershipTermId    for the current term
      * @param termBaseLogPosition at the beginning of the leadership term.
-     * @param logPosition         for the position in the current term or length so far for that term.
+     * @param logPosition         within the current term or accumulated length for the log.
      * @param timestamp           at which the snapshot was taken.
      * @param serviceId           for which the snapshot is recorded.
      */
@@ -828,81 +949,25 @@ public class RecordingLog implements AutoCloseable
         final long timestamp,
         final int serviceId)
     {
-        final int size = entriesCache.size();
-        if (size > 0)
+        if (!restoreInvalidSnapshot(
+            recordingId, leadershipTermId, termBaseLogPosition, logPosition, timestamp, serviceId))
         {
-            if (restoreSnapshotMarkedWithInvalid(
-                recordingId, leadershipTermId, termBaseLogPosition, logPosition, timestamp, serviceId))
+            final Entry entry = findLastTerm();
+            if (null != entry && entry.leadershipTermId != leadershipTermId)
             {
-                return;
+                throw new ClusterException("snapshot not for current leadership term=" + entry.leadershipTermId +
+                    " snapshot=" + leadershipTermId);
             }
 
-            final Entry entry = entriesCache.get(size - 1);
-            if (entry.type == ENTRY_TYPE_TERM && entry.leadershipTermId != leadershipTermId)
-            {
-                throw new ClusterException("leadershipTermId out of sequence: previous " +
-                    entry.leadershipTermId + " this " + leadershipTermId);
-            }
+            append(
+                ENTRY_TYPE_SNAPSHOT,
+                recordingId,
+                leadershipTermId,
+                termBaseLogPosition,
+                logPosition,
+                timestamp,
+                serviceId);
         }
-
-        append(
-            ENTRY_TYPE_SNAPSHOT,
-            recordingId,
-            leadershipTermId,
-            termBaseLogPosition,
-            logPosition,
-            timestamp,
-            serviceId);
-    }
-
-    private boolean restoreSnapshotMarkedWithInvalid(
-        final long recordingId,
-        final long leadershipTermId,
-        final long termBaseLogPosition,
-        final long logPosition,
-        final long timestamp,
-        final int serviceId)
-    {
-        for (int i = invalidSnapshots.size() - 1; i >= 0; i--)
-        {
-            final int entryCacheIndex = invalidSnapshots.getInt(i);
-            final Entry entry = entriesCache.get(entryCacheIndex);
-
-            if (entryMatches(entry, leadershipTermId, termBaseLogPosition, logPosition, serviceId))
-            {
-                final Entry validatedEntry = new Entry(
-                    recordingId,
-                    leadershipTermId,
-                    termBaseLogPosition,
-                    logPosition,
-                    timestamp,
-                    serviceId,
-                    ENTRY_TYPE_SNAPSHOT,
-                    true,
-                    entry.entryIndex);
-
-                writeEntryToBuffer(validatedEntry, buffer, byteBuffer);
-                final long position = (entry.entryIndex * (long)ENTRY_LENGTH);
-                try
-                {
-                    if (ENTRY_LENGTH != fileChannel.write(byteBuffer, position))
-                    {
-                        throw new ClusterException("failed to write entry atomically");
-                    }
-                }
-                catch (final IOException ex)
-                {
-                    LangUtil.rethrowUnchecked(ex);
-                }
-
-                entriesCache.set(entryCacheIndex, validatedEntry);
-                invalidSnapshots.fastUnorderedRemove(i);
-
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -1033,13 +1098,104 @@ public class RecordingLog implements AutoCloseable
         }
     }
 
-
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "RecordingLog{" +
             "entries=" + entriesCache +
             ", cacheIndex=" + cacheIndexByLeadershipTermIdMap +
             '}';
+    }
+
+    static void addSnapshots(
+        final ArrayList<Snapshot> snapshots,
+        final ArrayList<Entry> entries,
+        final int serviceCount,
+        final int snapshotIndex)
+    {
+        final Entry snapshot = entries.get(snapshotIndex);
+        snapshots.add(new Snapshot(
+            snapshot.recordingId,
+            snapshot.leadershipTermId,
+            snapshot.termBaseLogPosition,
+            snapshot.logPosition,
+            snapshot.timestamp,
+            snapshot.serviceId));
+
+        for (int i = 1; i <= serviceCount; i++)
+        {
+            if ((snapshotIndex - i) < 0)
+            {
+                throw new ClusterException("snapshot missing for service at index " + i + " in " + entries);
+            }
+
+            final Entry entry = entries.get(snapshotIndex - i);
+
+            if (ENTRY_TYPE_SNAPSHOT == entry.type &&
+                entry.leadershipTermId == snapshot.leadershipTermId &&
+                entry.logPosition == snapshot.logPosition)
+            {
+                snapshots.add(entry.serviceId + 1, new Snapshot(
+                    entry.recordingId,
+                    entry.leadershipTermId,
+                    entry.termBaseLogPosition,
+                    entry.logPosition,
+                    entry.timestamp,
+                    entry.serviceId));
+            }
+        }
+    }
+
+    private boolean restoreInvalidSnapshot(
+        final long recordingId,
+        final long leadershipTermId,
+        final long termBaseLogPosition,
+        final long logPosition,
+        final long timestamp,
+        final int serviceId)
+    {
+        for (int i = invalidSnapshots.size() - 1; i >= 0; i--)
+        {
+            final int entryCacheIndex = invalidSnapshots.getInt(i);
+            final Entry entry = entriesCache.get(entryCacheIndex);
+
+            if (entryMatches(entry, leadershipTermId, termBaseLogPosition, logPosition, serviceId))
+            {
+                final Entry validatedEntry = new Entry(
+                    recordingId,
+                    leadershipTermId,
+                    termBaseLogPosition,
+                    logPosition,
+                    timestamp,
+                    serviceId,
+                    ENTRY_TYPE_SNAPSHOT,
+                    true,
+                    entry.entryIndex);
+
+                writeEntryToBuffer(validatedEntry, buffer, byteBuffer);
+                final long position = (entry.entryIndex * (long)ENTRY_LENGTH);
+                try
+                {
+                    if (ENTRY_LENGTH != fileChannel.write(byteBuffer, position))
+                    {
+                        throw new ClusterException("failed to write entry atomically");
+                    }
+                }
+                catch (final IOException ex)
+                {
+                    LangUtil.rethrowUnchecked(ex);
+                }
+
+                entriesCache.set(entryCacheIndex, validatedEntry);
+                invalidSnapshots.fastUnorderedRemove(i);
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void append(
@@ -1169,10 +1325,32 @@ public class RecordingLog implements AutoCloseable
         final MutableReference<Log> logRef,
         final ArrayList<Entry> entries,
         final AeronArchive archive,
-        final int serviceCount)
+        final int serviceCount,
+        final long replicatedRecordingId)
     {
         if (entries.isEmpty())
         {
+            if (Aeron.NULL_VALUE != replicatedRecordingId)
+            {
+                final RecordingExtent recordingExtent = new RecordingExtent();
+                if (archive.listRecording(replicatedRecordingId, recordingExtent) == 0)
+                {
+                    throw new ClusterException("unknown recording id: " + replicatedRecordingId);
+                }
+
+                logRef.set(new Log(
+                    replicatedRecordingId,
+                    NULL_VALUE,
+                    0,
+                    0,
+                    recordingExtent.startPosition,
+                    recordingExtent.stopPosition,
+                    recordingExtent.initialTermId,
+                    recordingExtent.termBufferLength,
+                    recordingExtent.mtuLength,
+                    recordingExtent.sessionId));
+            }
+
             return;
         }
 
@@ -1227,45 +1405,6 @@ public class RecordingLog implements AutoCloseable
                 recordingExtent.termBufferLength,
                 recordingExtent.mtuLength,
                 recordingExtent.sessionId));
-        }
-    }
-
-    static void addSnapshots(
-        final ArrayList<Snapshot> snapshots,
-        final ArrayList<Entry> entries,
-        final int serviceCount,
-        final int snapshotIndex)
-    {
-        final Entry snapshot = entries.get(snapshotIndex);
-        snapshots.add(new Snapshot(
-            snapshot.recordingId,
-            snapshot.leadershipTermId,
-            snapshot.termBaseLogPosition,
-            snapshot.logPosition,
-            snapshot.timestamp,
-            snapshot.serviceId));
-
-        for (int i = 1; i <= serviceCount; i++)
-        {
-            if ((snapshotIndex - i) < 0)
-            {
-                throw new ClusterException("snapshot missing for service at index " + i + " in " + entries);
-            }
-
-            final Entry entry = entries.get(snapshotIndex - i);
-
-            if (ENTRY_TYPE_SNAPSHOT == entry.type &&
-                entry.leadershipTermId == snapshot.leadershipTermId &&
-                entry.logPosition == snapshot.logPosition)
-            {
-                snapshots.add(entry.serviceId + 1, new Snapshot(
-                    entry.recordingId,
-                    entry.leadershipTermId,
-                    entry.termBaseLogPosition,
-                    entry.logPosition,
-                    entry.timestamp,
-                    entry.serviceId));
-            }
         }
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,7 @@ import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.concurrent.ringbuffer.ManyToOneRingBuffer;
 import org.agrona.concurrent.ringbuffer.RingBuffer;
 
-import static io.aeron.agent.ClusterEventCode.EVENT_CODE_TYPE;
-import static io.aeron.agent.ClusterEventCode.NEW_LEADERSHIP_TERM;
+import static io.aeron.agent.ClusterEventCode.*;
 import static io.aeron.agent.ClusterEventEncoder.*;
 import static io.aeron.agent.CommonEventEncoder.*;
 import static io.aeron.agent.EventConfiguration.EVENT_RING_BUFFER;
@@ -32,6 +31,9 @@ import static io.aeron.agent.EventConfiguration.EVENT_RING_BUFFER;
  */
 public final class ClusterEventLogger
 {
+    /**
+     * Logger for writing into the {@link EventConfiguration#EVENT_RING_BUFFER}.
+     */
     public static final ClusterEventLogger LOGGER = new ClusterEventLogger(EVENT_RING_BUFFER);
 
     private final ManyToOneRingBuffer ringBuffer;
@@ -41,11 +43,27 @@ public final class ClusterEventLogger
         ringBuffer = eventRingBuffer;
     }
 
+    /**
+     * Log a new leadership term event.
+     *
+     * @param logLeadershipTermId term for which log entries are present.
+     * @param logTruncatePosition position of the log for the logLeadershipTermId.
+     * @param leadershipTermId    new leadership term id.
+     * @param termBaseLogPosition position the log reached at base of new term.
+     * @param logPosition         position the log reached for the new term.
+     * @param leaderRecordingId   of the log in the leader archive.
+     * @param timestamp           of the the new term.
+     * @param leaderMemberId      member id for the new leader.
+     * @param logSessionId        session id of the log extension.
+     * @param isStartup           is the leader starting up fresh.
+     */
     public void logNewLeadershipTerm(
         final long logLeadershipTermId,
         final long logTruncatePosition,
         final long leadershipTermId,
+        final long termBaseLogPosition,
         final long logPosition,
+        final long leaderRecordingId,
         final long timestamp,
         final int leaderMemberId,
         final int logSessionId,
@@ -55,7 +73,7 @@ public final class ClusterEventLogger
         final int captureLength = captureLength(length);
         final int encodedLength = encodedLength(captureLength);
         final ManyToOneRingBuffer ringBuffer = this.ringBuffer;
-        final int index = ringBuffer.tryClaim(toEventCodeId(NEW_LEADERSHIP_TERM), encodedLength);
+        final int index = ringBuffer.tryClaim(NEW_LEADERSHIP_TERM.toEventCodeId(), encodedLength);
 
         if (index > 0)
         {
@@ -69,7 +87,9 @@ public final class ClusterEventLogger
                     logLeadershipTermId,
                     logTruncatePosition,
                     leadershipTermId,
+                    termBaseLogPosition,
                     logPosition,
+                    leaderRecordingId,
                     timestamp,
                     leaderMemberId,
                     logSessionId,
@@ -82,6 +102,15 @@ public final class ClusterEventLogger
         }
     }
 
+    /**
+     * Log a state change event for a cluster node.
+     *
+     * @param eventCode for the type of state change.
+     * @param oldState  before the change.
+     * @param newState  after the change.
+     * @param memberId  on which the change has taken place.
+     * @param <E> type representing the state change.
+     */
     public <E extends Enum<E>> void logStateChange(
         final ClusterEventCode eventCode, final E oldState, final E newState, final int memberId)
     {
@@ -89,7 +118,7 @@ public final class ClusterEventLogger
         final int captureLength = captureLength(length);
         final int encodedLength = encodedLength(captureLength);
         final ManyToOneRingBuffer ringBuffer = this.ringBuffer;
-        final int index = ringBuffer.tryClaim(toEventCodeId(eventCode), encodedLength);
+        final int index = ringBuffer.tryClaim(eventCode.toEventCodeId(), encodedLength);
 
         if (index > 0)
         {
@@ -111,8 +140,79 @@ public final class ClusterEventLogger
         }
     }
 
-    public static int toEventCodeId(final ClusterEventCode eventCode)
+    /**
+     * Log a canvass position event received by the cluster node.
+     *
+     * @param logLeadershipTermId leadershipTermId reached by the member for it recorded log.
+     * @param logPosition         position the member has durably recorded.
+     * @param followerMemberId    member who sent the event.
+     */
+    public void logCanvassPosition(final long logLeadershipTermId, final long logPosition, final int followerMemberId)
     {
-        return EVENT_CODE_TYPE << 16 | (eventCode.id() & 0xFFFF);
+        final int length = canvassPositionLength();
+        final int captureLength = captureLength(length);
+        final int encodedLength = encodedLength(captureLength);
+        final ManyToOneRingBuffer ringBuffer = this.ringBuffer;
+        final int index = ringBuffer.tryClaim(CANVASS_POSITION.toEventCodeId(), encodedLength);
+
+        if (index > 0)
+        {
+            try
+            {
+                encodeCanvassPosition(
+                    (UnsafeBuffer)ringBuffer.buffer(),
+                    index,
+                    captureLength,
+                    length,
+                    logLeadershipTermId,
+                    logPosition,
+                    followerMemberId);
+            }
+            finally
+            {
+                ringBuffer.commit(index);
+            }
+        }
+    }
+
+    /**
+     * Log a request to vote from a cluster candidate for leadership.
+     *
+     * @param logLeadershipTermId leadershipTermId processes from the log by the candidate.
+     * @param logPosition         position reached in the log for the latest leadership term.
+     * @param candidateTermId     the term id as the candidate sees it for the election.
+     * @param candidateId         id of the candidate node.
+     */
+    public void logRequestVote(
+        final long logLeadershipTermId,
+        final long logPosition,
+        final long candidateTermId,
+        final int candidateId)
+    {
+        final int length = requestVoteLength();
+        final int captureLength = captureLength(length);
+        final int encodedLength = encodedLength(captureLength);
+        final ManyToOneRingBuffer ringBuffer = this.ringBuffer;
+        final int index = ringBuffer.tryClaim(REQUEST_VOTE.toEventCodeId(), encodedLength);
+
+        if (index > 0)
+        {
+            try
+            {
+                encodeRequestVote(
+                    (UnsafeBuffer)ringBuffer.buffer(),
+                    index,
+                    captureLength,
+                    length,
+                    logLeadershipTermId,
+                    logPosition,
+                    candidateTermId,
+                    candidateId);
+            }
+            finally
+            {
+                ringBuffer.commit(index);
+            }
+        }
     }
 }

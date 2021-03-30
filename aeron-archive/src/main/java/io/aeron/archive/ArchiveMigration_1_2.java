@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,11 +40,17 @@ class ArchiveMigration_1_2 implements ArchiveMigrationStep
 {
     private static final int MINIMUM_VERSION = SemanticVersion.compose(2, 0, 0);
 
+    /**
+     * {@inheritDoc}
+     */
     public int minimumVersion()
     {
         return MINIMUM_VERSION;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void migrate(
         final PrintStream stream,
         final ArchiveMarkFile markFile,
@@ -167,6 +173,9 @@ class ArchiveMigration_1_2 implements ArchiveMigrationStep
         stream.println("(recordingId=" + recordingId + ") OK");
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "to " + fullVersionString(minimumVersion());

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ import static io.aeron.CommonContext.*;
  * <p>
  * NOTE: Merging is only supported with UDP streams.
  */
-public class ReplayMerge implements AutoCloseable
+public final class ReplayMerge implements AutoCloseable
 {
     /**
      * The maximum window at which a live destination should be added when trying to merge.
@@ -47,7 +47,7 @@ public class ReplayMerge implements AutoCloseable
     public static final int LIVE_ADD_MAX_WINDOW = 32 * 1024 * 1024;
 
     private static final int REPLAY_REMOVE_THRESHOLD = 0;
-    private static final long MERGE_PROGRESS_TIMEOUT_DEFAULT_MS = TimeUnit.SECONDS.toMillis(10);
+    private static final long MERGE_PROGRESS_TIMEOUT_DEFAULT_MS = TimeUnit.SECONDS.toMillis(5);
 
     enum State
     {
@@ -541,14 +541,9 @@ public class ReplayMerge implements AutoCloseable
             image.activeTransportCount() >= 2;
     }
 
-    private boolean hasProgressStalled(final long nowMs)
-    {
-        return nowMs > (timeOfLastProgressMs + mergeProgressTimeoutMs);
-    }
-
     private void checkProgress(final long nowMs)
     {
-        if (hasProgressStalled(nowMs))
+        if (nowMs > (timeOfLastProgressMs + mergeProgressTimeoutMs))
         {
             throw new TimeoutException("ReplayMerge no progress: state=" + state);
         }
@@ -581,6 +576,9 @@ public class ReplayMerge implements AutoCloseable
         return archive.controlResponsePoller().relevantId();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "ReplayMerge{" +
@@ -591,6 +589,7 @@ public class ReplayMerge implements AutoCloseable
             ", isLiveAdded=" + isLiveAdded +
             ", isReplayActive=" + isReplayActive +
             ", replayChannelUri=" + replayChannelUri +
+            ", image=" + image +
             '}';
     }
 }

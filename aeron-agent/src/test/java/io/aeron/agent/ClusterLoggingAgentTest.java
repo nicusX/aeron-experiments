@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,44 +15,44 @@
  */
 package io.aeron.agent;
 
+import io.aeron.Counter;
 import io.aeron.archive.Archive;
 import io.aeron.archive.ArchiveThreadingMode;
 import io.aeron.archive.client.AeronArchive;
 import io.aeron.cluster.ClusteredMediaDriver;
 import io.aeron.cluster.ConsensusModule;
-import io.aeron.cluster.service.*;
+import io.aeron.cluster.ElectionState;
+import io.aeron.cluster.service.ClusteredService;
+import io.aeron.cluster.service.ClusteredServiceContainer;
 import io.aeron.driver.MediaDriver.Context;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.test.Tests;
+import io.aeron.test.cluster.ClusterTests;
 import org.agrona.CloseHelper;
 import org.agrona.IoUtil;
 import org.agrona.MutableDirectBuffer;
-import org.agrona.concurrent.*;
+import org.agrona.concurrent.Agent;
+import org.agrona.concurrent.MessageHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.io.File;
 import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
+import java.util.function.Supplier;
 
 import static io.aeron.agent.ClusterEventCode.*;
-import static io.aeron.agent.ClusterEventLogger.toEventCodeId;
 import static io.aeron.agent.CommonEventEncoder.LOG_HEADER_LENGTH;
 import static io.aeron.agent.EventConfiguration.EVENT_READER_FRAME_LIMIT;
 import static io.aeron.agent.EventConfiguration.EVENT_RING_BUFFER;
 import static java.util.Collections.synchronizedSet;
-import static java.util.stream.Collectors.toSet;
 import static org.agrona.BitUtil.SIZE_OF_INT;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
 
 public class ClusterLoggingAgentTest
 {
-    private static final Set<Integer> LOGGED_EVENTS = synchronizedSet(new HashSet<>());
-    private static CountDownLatch latch;
+    private static final Set<ClusterEventCode> WAIT_LIST = synchronizedSet(EnumSet.noneOf(ClusterEventCode.class));
 
     private File testDir;
     private ClusteredMediaDriver clusteredMediaDriver;
@@ -72,66 +72,58 @@ public class ClusterLoggingAgentTest
 
     @Test
     @Timeout(20)
-    public void logAll() throws InterruptedException
+    public void logAll()
     {
         testClusterEventsLogging("all", EnumSet.of(ROLE_CHANGE, STATE_CHANGE, ELECTION_STATE_CHANGE));
     }
 
     @Test
     @Timeout(20)
-    public void logRoleChange() throws InterruptedException
+    public void logRoleChange()
     {
         testClusterEventsLogging(ROLE_CHANGE.name(), EnumSet.of(ROLE_CHANGE));
     }
 
     @Test
     @Timeout(20)
-    public void logStateChange() throws InterruptedException
+    public void logStateChange()
     {
         testClusterEventsLogging(STATE_CHANGE.name(), EnumSet.of(STATE_CHANGE));
     }
 
     @Test
     @Timeout(20)
-    public void logElectionStateChange() throws InterruptedException
+    public void logElectionStateChange()
     {
         testClusterEventsLogging(ELECTION_STATE_CHANGE.name(), EnumSet.of(ELECTION_STATE_CHANGE));
     }
 
     private void testClusterEventsLogging(
-        final String enabledEvents, final EnumSet<ClusterEventCode> expectedEvents) throws InterruptedException
+        final String enabledEvents, final EnumSet<ClusterEventCode> expectedEvents)
     {
-        before(enabledEvents, expectedEvents.size());
-
-        final String aeronDirectoryName = testDir.toPath().resolve("media").toString();
+        before(enabledEvents, expectedEvents);
 
         final Context mediaDriverCtx = new Context()
             .errorHandler(Tests::onError)
-            .aeronDirectoryName(aeronDirectoryName)
             .dirDeleteOnStart(true)
             .threadingMode(ThreadingMode.SHARED);
 
         final AeronArchive.Context aeronArchiveContext = new AeronArchive.Context()
-            .aeronDirectoryName(aeronDirectoryName)
-            .controlRequestChannel("aeron:udp?term-length=64k|endpoint=localhost:8010")
-            .controlRequestStreamId(100)
-            .controlResponseChannel("aeron:udp?term-length=64k|endpoint=localhost:0")
-            .controlResponseStreamId(101)
-            .recordingEventsChannel("aeron:udp?control-mode=dynamic|control=localhost:8030");
+            .controlRequestChannel("aeron:ipc?term-length=64k")
+            .controlRequestStreamId(AeronArchive.Configuration.localControlStreamId())
+            .controlResponseChannel("aeron:ipc?term-length=64k")
+            .controlResponseStreamId(AeronArchive.Configuration.localControlStreamId() + 1)
+            .controlResponseStreamId(101);
 
         final Archive.Context archiveCtx = new Archive.Context()
             .errorHandler(Tests::onError)
             .archiveDir(new File(testDir, "archive"))
             .deleteArchiveOnStart(true)
-            .controlChannel(aeronArchiveContext.controlRequestChannel())
-            .controlStreamId(aeronArchiveContext.controlRequestStreamId())
-            .localControlStreamId(aeronArchiveContext.controlRequestStreamId())
-            .recordingEventsChannel(aeronArchiveContext.recordingEventsChannel())
             .recordingEventsEnabled(false)
             .threadingMode(ArchiveThreadingMode.SHARED);
 
         final ConsensusModule.Context consensusModuleCtx = new ConsensusModule.Context()
-            .errorHandler(Tests::onError)
+            .errorHandler(ClusterTests.errorHandler(0))
             .clusterDir(new File(testDir, "consensus-module"))
             .archiveContext(aeronArchiveContext.clone())
             .clusterMemberId(0)
@@ -140,8 +132,7 @@ public class ClusterLoggingAgentTest
 
         final ClusteredService clusteredService = mock(ClusteredService.class);
         final ClusteredServiceContainer.Context clusteredServiceCtx = new ClusteredServiceContainer.Context()
-            .aeronDirectoryName(aeronDirectoryName)
-            .errorHandler(Tests::onError)
+            .errorHandler(ClusterTests.errorHandler(0))
             .archiveContext(aeronArchiveContext.clone())
             .clusterDir(new File(testDir, "service"))
             .clusteredService(clusteredService);
@@ -149,25 +140,25 @@ public class ClusterLoggingAgentTest
         clusteredMediaDriver = ClusteredMediaDriver.launch(mediaDriverCtx, archiveCtx, consensusModuleCtx);
         container = ClusteredServiceContainer.launch(clusteredServiceCtx);
 
-        latch.await();
-        verify(clusteredService, timeout(5000)).onRoleChange(eq(Cluster.Role.LEADER));
+        Tests.await(WAIT_LIST::isEmpty);
 
-        final Set<Integer> expected = expectedEvents
-            .stream()
-            .map(ClusterEventLogger::toEventCodeId)
-            .collect(toSet());
+        final Counter state = clusteredMediaDriver.consensusModule().context().electionStateCounter();
 
-        assertEquals(expected, LOGGED_EVENTS);
+        final Supplier<String> message = () -> ElectionState.get(state).toString();
+        while (ElectionState.CLOSED != ElectionState.get(state))
+        {
+            Tests.sleep(1, message);
+        }
     }
 
-    private void before(final String enabledEvents, final int expectedEvents)
+    private void before(final String enabledEvents, final EnumSet<ClusterEventCode> expectedEvents)
     {
         System.setProperty(EventLogAgent.READER_CLASSNAME_PROP_NAME, StubEventLogReaderAgent.class.getName());
         System.setProperty(EventConfiguration.ENABLED_CLUSTER_EVENT_CODES_PROP_NAME, enabledEvents);
         AgentTests.beforeAgent();
 
-        LOGGED_EVENTS.clear();
-        latch = new CountDownLatch(expectedEvents);
+        WAIT_LIST.clear();
+        WAIT_LIST.addAll(expectedEvents);
 
         testDir = new File(IoUtil.tmpDirName(), "cluster-test");
         if (testDir.exists())
@@ -176,7 +167,7 @@ public class ClusterLoggingAgentTest
         }
     }
 
-    static class StubEventLogReaderAgent implements Agent, MessageHandler
+    static final class StubEventLogReaderAgent implements Agent, MessageHandler
     {
         public String roleName()
         {
@@ -190,31 +181,39 @@ public class ClusterLoggingAgentTest
 
         public void onMessage(final int msgTypeId, final MutableDirectBuffer buffer, final int index, final int length)
         {
-            LOGGED_EVENTS.add(msgTypeId);
-
             final int offset = LOG_HEADER_LENGTH + index + SIZE_OF_INT;
-            if (toEventCodeId(ROLE_CHANGE) == msgTypeId)
+            final ClusterEventCode eventCode = fromEventCodeId(msgTypeId);
+
+            switch (eventCode)
             {
-                final String roleChange = buffer.getStringAscii(offset);
-                if (roleChange.contains("LEADER"))
+                case ROLE_CHANGE:
                 {
-                    latch.countDown();
+                    final String roleChange = buffer.getStringAscii(offset);
+                    if (roleChange.contains("LEADER"))
+                    {
+                        WAIT_LIST.remove(eventCode);
+                    }
+                    break;
                 }
-            }
-            else if (toEventCodeId(STATE_CHANGE) == msgTypeId)
-            {
-                final String stateChange = buffer.getStringAscii(offset);
-                if (stateChange.contains("ACTIVE"))
+
+                case STATE_CHANGE:
                 {
-                    latch.countDown();
+                    final String stateChange = buffer.getStringAscii(offset);
+                    if (stateChange.contains("ACTIVE"))
+                    {
+                        WAIT_LIST.remove(eventCode);
+                    }
+                    break;
                 }
-            }
-            else if (toEventCodeId(ELECTION_STATE_CHANGE) == msgTypeId)
-            {
-                final String stateChange = buffer.getStringAscii(offset);
-                if (stateChange.contains("CLOSED"))
+
+                case ELECTION_STATE_CHANGE:
                 {
-                    latch.countDown();
+                    final String stateChange = buffer.getStringAscii(offset);
+                    if (stateChange.contains("CLOSED"))
+                    {
+                        WAIT_LIST.remove(eventCode);
+                    }
+                    break;
                 }
             }
         }

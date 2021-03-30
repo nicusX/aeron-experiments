@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,7 +48,9 @@ int aeron_receive_destination_create(
     aeron_driver_context_t *context,
     aeron_counters_manager_t *counters_manager,
     int64_t registration_id,
-    int32_t channel_status_counter_id);
+    int32_t channel_status_counter_id,
+    size_t socket_rcvbuf,
+    size_t socket_sndbuf);
 
 void aeron_receive_destination_delete(
     aeron_receive_destination_t *destination, aeron_counters_manager_t *counters_manager);

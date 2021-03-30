@@ -1,5 +1,5 @@
 /*
- *  Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import io.aeron.exceptions.AeronException;
 import io.aeron.logbuffer.BufferClaim;
 import org.agrona.ExpandableArrayBuffer;
 
-class ConsensusPublisher
+final class ConsensusPublisher
 {
     private static final int SEND_ATTEMPTS = 3;
 
@@ -152,7 +152,9 @@ class ConsensusPublisher
         final long logLeadershipTermId,
         final long logTruncatePosition,
         final long leadershipTermId,
+        final long termBaseLogPosition,
         final long logPosition,
+        final long leaderRecordingId,
         final long timestamp,
         final int leaderMemberId,
         final int logSessionId,
@@ -171,7 +173,9 @@ class ConsensusPublisher
                     .logLeadershipTermId(logLeadershipTermId)
                     .logTruncatePosition(logTruncatePosition)
                     .leadershipTermId(leadershipTermId)
+                    .termBaseLogPosition(termBaseLogPosition)
                     .logPosition(logPosition)
+                    .leaderRecordingId(leaderRecordingId)
                     .timestamp(timestamp)
                     .leaderMemberId(leaderMemberId)
                     .logSessionId(logSessionId)
@@ -253,9 +257,14 @@ class ConsensusPublisher
         final ExclusivePublication publication,
         final long leadershipTermId,
         final long logPosition,
-        final int followerMemberId)
+        final int followerMemberId,
+        final String catchupEndpoint)
     {
-        final int length = MessageHeaderEncoder.ENCODED_LENGTH + CatchupPositionEncoder.BLOCK_LENGTH;
+        final int length =
+            MessageHeaderEncoder.ENCODED_LENGTH +
+            CatchupPositionEncoder.BLOCK_LENGTH +
+            CatchupPositionEncoder.catchupEndpointHeaderLength() +
+            catchupEndpoint.length();
 
         int attempts = SEND_ATTEMPTS;
         do
@@ -267,7 +276,8 @@ class ConsensusPublisher
                     .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
                     .leadershipTermId(leadershipTermId)
                     .logPosition(logPosition)
-                    .followerMemberId(followerMemberId);
+                    .followerMemberId(followerMemberId)
+                    .catchupEndpoint(catchupEndpoint);
 
                 bufferClaim.commit();
 
@@ -311,25 +321,19 @@ class ConsensusPublisher
     boolean addPassiveMember(
         final ExclusivePublication publication, final long correlationId, final String memberEndpoints)
     {
-        final int length =
-            MessageHeaderEncoder.ENCODED_LENGTH +
-            AddPassiveMemberEncoder.BLOCK_LENGTH +
-            AddPassiveMemberEncoder.memberEndpointsHeaderLength() +
-            memberEndpoints.length();
+        addPassiveMemberEncoder
+            .wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
+            .correlationId(correlationId)
+            .memberEndpoints(memberEndpoints);
+
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + addPassiveMemberEncoder.encodedLength();
 
         int attempts = SEND_ATTEMPTS;
         do
         {
-            final long result = publication.tryClaim(length, bufferClaim);
+            final long result = publication.offer(buffer, 0, length);
             if (result > 0)
             {
-                addPassiveMemberEncoder
-                    .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
-                    .correlationId(correlationId)
-                    .memberEndpoints(memberEndpoints);
-
-                bufferClaim.commit();
-
                 return true;
             }
 
@@ -347,29 +351,21 @@ class ConsensusPublisher
         final String activeMembers,
         final String passiveMembers)
     {
-        final int length =
-            MessageHeaderEncoder.ENCODED_LENGTH +
-            ClusterMembersChangeEncoder.BLOCK_LENGTH +
-            ClusterMembersChangeEncoder.activeMembersHeaderLength() +
-            activeMembers.length() +
-            ClusterMembersChangeEncoder.passiveMembersHeaderLength() +
-            passiveMembers.length();
+        clusterMembersChangeEncoder
+            .wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
+            .correlationId(correlationId)
+            .leaderMemberId(leaderMemberId)
+            .activeMembers(activeMembers)
+            .passiveMembers(passiveMembers);
+
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + clusterMembersChangeEncoder.encodedLength();
 
         int attempts = SEND_ATTEMPTS;
         do
         {
-            final long result = publication.tryClaim(length, bufferClaim);
+            final long result = publication.offer(buffer, 0, length);
             if (result > 0)
             {
-                clusterMembersChangeEncoder
-                    .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
-                    .correlationId(correlationId)
-                    .leaderMemberId(leaderMemberId)
-                    .activeMembers(activeMembers)
-                    .passiveMembers(passiveMembers);
-
-                bufferClaim.commit();
-
                 return true;
             }
 
@@ -499,6 +495,7 @@ class ConsensusPublisher
             }
 
             checkResult(result);
+            Thread.yield();
         }
         while (--attempts > 0);
 
@@ -528,6 +525,7 @@ class ConsensusPublisher
             }
 
             checkResult(result);
+            Thread.yield();
         }
         while (--attempts > 0);
 
@@ -542,28 +540,22 @@ class ConsensusPublisher
         final String responseChannel,
         final byte[] encodedCredentials)
     {
-        final int length = MessageHeaderEncoder.ENCODED_LENGTH + BackupQueryEncoder.BLOCK_LENGTH +
-            BackupQueryEncoder.responseChannelHeaderLength() +
-            responseChannel.length() +
-            BackupQueryEncoder.encodedCredentialsHeaderLength() +
-            encodedCredentials.length;
+        backupQueryEncoder
+            .wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
+            .correlationId(correlationId)
+            .responseStreamId(responseStreamId)
+            .version(version)
+            .responseChannel(responseChannel)
+            .putEncodedCredentials(encodedCredentials, 0, encodedCredentials.length);
+
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + backupQueryEncoder.encodedLength();
 
         int attempts = SEND_ATTEMPTS;
         do
         {
-            final long result = publication.tryClaim(length, bufferClaim);
+            final long result = publication.offer(buffer, 0, length);
             if (result > 0)
             {
-                backupQueryEncoder
-                    .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
-                    .correlationId(correlationId)
-                    .responseStreamId(responseStreamId)
-                    .version(version)
-                    .responseChannel(responseChannel)
-                    .putEncodedCredentials(encodedCredentials, 0, encodedCredentials.length);
-
-                bufferClaim.commit();
-
                 return true;
             }
 
@@ -575,25 +567,20 @@ class ConsensusPublisher
     }
 
     boolean backupResponse(
-        final Publication publication,
-        final long correlationId,
-        final long logRecordingId,
-        final long logLeadershipTermId,
-        final long logTermBaseLogPosition,
-        final long lastLeadershipTermId,
-        final long lastTermBaseLogPosition,
+        final ClusterSession session,
         final int commitPositionCounterId,
         final int leaderMemberId,
+        final RecordingLog.Entry lastEntry,
         final RecordingLog.RecoveryPlan recoveryPlan,
         final String clusterMembers)
     {
         backupResponseEncoder.wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
-            .correlationId(correlationId)
-            .logRecordingId(logRecordingId)
-            .logLeadershipTermId(logLeadershipTermId)
-            .logTermBaseLogPosition(logTermBaseLogPosition)
-            .lastLeadershipTermId(lastLeadershipTermId)
-            .lastTermBaseLogPosition(lastTermBaseLogPosition)
+            .correlationId(session.correlationId())
+            .logRecordingId(recoveryPlan.log.recordingId)
+            .logLeadershipTermId(recoveryPlan.log.leadershipTermId)
+            .logTermBaseLogPosition(recoveryPlan.log.termBaseLogPosition)
+            .lastLeadershipTermId(lastEntry.leadershipTermId)
+            .lastTermBaseLogPosition(lastEntry.termBaseLogPosition)
             .commitPositionCounterId(commitPositionCounterId)
             .leaderMemberId(leaderMemberId);
 
@@ -619,7 +606,7 @@ class ConsensusPublisher
         int attempts = SEND_ATTEMPTS;
         do
         {
-            final long result = publication.offer(buffer, 0, length);
+            final long result = session.responsePublication().offer(buffer, 0, length);
             if (result > 0)
             {
                 return true;

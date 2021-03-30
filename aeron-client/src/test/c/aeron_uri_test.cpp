@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,9 +28,6 @@ extern "C"
 class UriTest : public testing::Test
 {
 public:
-    UriTest()
-    {
-    }
 
     ~UriTest() override
     {
@@ -258,7 +255,7 @@ TEST_F(UriLookupTest, shouldNotFindUnknown)
 class UriPrintTest : public testing::TestWithParam<const char *>
 {
 public:
-    ~UriPrintTest()
+    ~UriPrintTest() override
     {
         aeron_uri_close(&m_uri);
     }

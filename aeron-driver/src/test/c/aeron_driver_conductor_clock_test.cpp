@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,13 +31,14 @@ TEST_F(DriverConductorClockTest, shouldUpdateCachedClockOnMsBoundary)
 
     test_increment_nano_time(half_increment_for_clock_update);
     doWork();
-    ASSERT_EQ(initial_nano_time, aeron_clock_cached_nano_time(m_conductor.m_conductor.context->cached_clock));
+    ASSERT_EQ(initial_nano_time + half_increment_for_clock_update,
+        aeron_clock_cached_nano_time(m_conductor.m_conductor.context->cached_clock));
     ASSERT_EQ(initial_epoch_time, aeron_clock_cached_epoch_time(m_conductor.m_conductor.context->cached_clock));
 
     test_increment_nano_time(half_increment_for_clock_update);
     doWork();
     ASSERT_LE(
-        initial_nano_time + AERON_DRIVER_CONDUCTOR_CLOCK_UPDATE_DURATION_NS,
+        initial_nano_time + AERON_DRIVER_CONDUCTOR_CLOCK_UPDATE_INTERNAL_NS,
         aeron_clock_cached_nano_time(m_conductor.m_conductor.context->cached_clock));
     ASSERT_LT(
         initial_epoch_time,

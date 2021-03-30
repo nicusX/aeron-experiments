@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -85,5 +85,7 @@ bool aeron_is_wildcard_addr(struct sockaddr_storage *addr);
 bool aeron_is_wildcard_port(struct sockaddr_storage *addr);
 
 int aeron_format_source_identity(char *buffer, size_t length, struct sockaddr_storage *addr);
+
+int aeron_netutil_get_so_buf_lengths(size_t *default_so_rcvbuf, size_t *default_so_sndbuf);
 
 #endif //AERON_NETUTIL_H

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -252,7 +252,6 @@ static void aeron_driver_conductor_remove_publication_cleanup_null(
 
 static void aeron_driver_conductor_remove_subscription_cleanup_null(
     const int64_t id, const int32_t stream_id, const size_t channel_length, const char *channel)
-
 {
 }
 
@@ -296,7 +295,7 @@ static void aeron_driver_conductor_on_endpoint_change_null(const void *channel)
 #define AERON_RECEIVER_GROUP_TAG_VALUE_DEFAULT (-1)
 #define AERON_FLOW_CONTROL_GROUP_TAG_DEFAULT (-1)
 #define AERON_FLOW_CONTROL_GROUP_MIN_SIZE_DEFAULT (0)
-#define AERON_FLOW_CONTROL_RECEIVER_TIMEOUT_NS_DEFAULT (2 * 1000 * 1000 * 1000LL)
+#define AERON_FLOW_CONTROL_RECEIVER_TIMEOUT_NS_DEFAULT (5 * 1000 * 1000 * 1000LL)
 #define AERON_SEND_TO_STATUS_POLL_RATIO_DEFAULT (4)
 #define AERON_RCV_STATUS_MESSAGE_TIMEOUT_NS_DEFAULT (200 * 1000 * 1000LL)
 #define AERON_MULTICAST_FLOWCONTROL_SUPPLIER_DEFAULT ("aeron_max_multicast_flow_control_strategy_supplier")
@@ -327,7 +326,8 @@ static void aeron_driver_conductor_on_endpoint_change_null(const void *channel)
 #define AERON_REJOIN_STREAM_DEFAULT (true)
 #define AERON_PUBLICATION_RESERVED_SESSION_ID_LOW_DEFAULT (-1)
 #define AERON_PUBLICATION_RESERVED_SESSION_ID_HIGH_DEFAULT (1000)
-#define AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL_NS_DEFAULT (1 * 1000 * 1000 * 1000LL)
+#define AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL_NS_DEFAULT (1 * 1000 * 1000 * INT64_C(1000))
+#define AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD_NS_DEFAULT (1 * 1000 * 1000 * INT64_C(1000))
 
 int aeron_driver_context_init(aeron_driver_context_t **context)
 {
@@ -335,13 +335,13 @@ int aeron_driver_context_init(aeron_driver_context_t **context)
 
     if (NULL == context)
     {
-        errno = EINVAL;
-        aeron_set_err(EINVAL, "aeron_driver_context_init(NULL): %s", strerror(EINVAL));
+        AERON_SET_ERR(EINVAL, "%s", "aeron_driver_context_init(NULL)");
         return -1;
     }
 
     if (aeron_alloc((void **)&_context, sizeof(aeron_driver_context_t)) < 0)
     {
+        AERON_APPEND_ERR("%s", "Failed to allocate aeron_driver_context");
         return -1;
     }
 
@@ -468,6 +468,7 @@ int aeron_driver_context_init(aeron_driver_context_t **context)
     _context->resolver_bootstrap_neighbor = NULL;
     _context->name_resolver_init_args = NULL;
     _context->re_resolution_check_interval_ns = AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL_NS_DEFAULT;
+    _context->conductor_cycle_threshold_ns = AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD_NS_DEFAULT;
 
     char *value = NULL;
 
@@ -845,6 +846,13 @@ int aeron_driver_context_init(aeron_driver_context_t **context)
         0,
         INT64_MAX);
 
+    _context->conductor_cycle_threshold_ns = aeron_config_parse_duration_ns(
+        AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD_ENV_VAR,
+        getenv(AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD_ENV_VAR),
+        _context->conductor_cycle_threshold_ns,
+        0,
+        UINT64_C(60) * 60 * 1000 * 1000 * 1000);
+
     _context->to_driver_buffer = NULL;
     _context->to_clients_buffer = NULL;
     _context->counters_values_buffer = NULL;
@@ -854,6 +862,14 @@ int aeron_driver_context_init(aeron_driver_context_t **context)
     _context->nano_clock = aeron_nano_clock;
     _context->epoch_clock = aeron_epoch_clock;
     if (aeron_clock_cache_alloc(&_context->cached_clock) < 0)
+    {
+        return -1;
+    }
+    if (aeron_clock_cache_alloc(&_context->sender_cached_clock) < 0)
+    {
+        return -1;
+    }
+    if (aeron_clock_cache_alloc(&_context->receiver_cached_clock) < 0)
     {
         return -1;
     }
@@ -1004,6 +1020,13 @@ int aeron_driver_context_init(aeron_driver_context_t **context)
     _context->next_receiver_id = aeron_randomised_int32();
 #endif
 
+    if (aeron_netutil_get_so_buf_lengths(
+        &_context->os_buffer_lengths.default_so_rcvbuf, &_context->os_buffer_lengths.default_so_sndbuf) < 0)
+    {
+        AERON_APPEND_ERR("%s", "Failed to initial context with buffer lengths");
+        return -1;
+    }
+
     *context = _context;
     return 0;
 }
@@ -1039,8 +1062,7 @@ int aeron_driver_context_bindings_clientd_create_entries(aeron_driver_context_t 
 
     if (aeron_alloc((void **)&_entries, sizeof(aeron_driver_context_bindings_clientd_entry_t) * num_entries) < 0)
     {
-        aeron_set_err(
-            aeron_errcode(), "could not allocate context_bindings_clientd_entries: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "could not allocate context_bindings_clientd_entries");
         return -1;
     }
 
@@ -1060,8 +1082,7 @@ int aeron_driver_context_close(aeron_driver_context_t *context)
 {
     if (NULL == context)
     {
-        errno = EINVAL;
-        aeron_set_err(EINVAL, "aeron_driver_context_close(NULL): %s", strerror(EINVAL));
+        AERON_SET_ERR(EINVAL, "%s", "aeron_driver_context_close(NULL)");
         return -1;
     }
 
@@ -1086,12 +1107,7 @@ int aeron_driver_context_close(aeron_driver_context_t *context)
                 delete_result = EINVAL;
             }
 
-            errno = delete_result;
-            aeron_set_err(
-                delete_result,
-                "aeron_driver_context_close failed to delete dir: %s %s",
-                strerror(delete_result),
-                context->aeron_dir);
+            AERON_SET_ERR(delete_result, "aeron_driver_context_close failed to delete dir: %s", context->aeron_dir);
 
             result = -1;
         }
@@ -1115,6 +1131,8 @@ int aeron_driver_context_close(aeron_driver_context_t *context)
     aeron_free(context->shared_network_idle_strategy_init_args);
     aeron_free(context->bindings_clientd_entries);
     aeron_free(context->cached_clock);
+    aeron_free(context->sender_cached_clock);
+    aeron_free(context->receiver_cached_clock);
     aeron_dl_load_libs_delete(context->dynamic_libs);
 
     aeron_free(context);
@@ -1127,7 +1145,7 @@ int aeron_driver_validate_unblock_timeout(aeron_driver_context_t *context)
     if (context->publication_unblock_timeout_ns <= context->client_liveness_timeout_ns)
     {
         errno = EINVAL;
-        aeron_set_err(
+        AERON_SET_ERR(
             EINVAL,
             "publication_unblock_timeout_ns=%" PRIu64 " <= client_liveness_timeout_ns=%" PRIu64,
             context->publication_unblock_timeout_ns, context->client_liveness_timeout_ns);
@@ -1137,7 +1155,7 @@ int aeron_driver_validate_unblock_timeout(aeron_driver_context_t *context)
     if (context->client_liveness_timeout_ns <= context->timer_interval_ns)
     {
         errno = EINVAL;
-        aeron_set_err(
+        AERON_SET_ERR(
             EINVAL,
             "client_liveness_timeout_ns=%" PRIu64 " <= timer_interval_ns=%" PRIu64,
             context->client_liveness_timeout_ns, context->timer_interval_ns);
@@ -1152,7 +1170,7 @@ int aeron_driver_validate_untethered_timeouts(aeron_driver_context_t *context)
     if (context->untethered_window_limit_timeout_ns <= context->timer_interval_ns)
     {
         errno = EINVAL;
-        aeron_set_err(
+        AERON_SET_ERR(
             EINVAL,
             "untethered_window_limit_timeout_ns=%" PRIu64 " <= timer_interval_ns=%" PRIu64,
             context->untethered_window_limit_timeout_ns, context->timer_interval_ns);
@@ -1162,7 +1180,7 @@ int aeron_driver_validate_untethered_timeouts(aeron_driver_context_t *context)
     if (context->untethered_resting_timeout_ns <= context->timer_interval_ns)
     {
         errno = EINVAL;
-        aeron_set_err(
+        AERON_SET_ERR(
             EINVAL,
             "untethered_resting_timeout_ns=%" PRIu64 " <= timer_interval_ns=%" PRIu64,
             context->untethered_resting_timeout_ns, context->timer_interval_ns);
@@ -1176,7 +1194,7 @@ int aeron_driver_context_validate_mtu_length(uint64_t mtu_length)
 {
     if (mtu_length <= AERON_DATA_HEADER_LENGTH || mtu_length > AERON_MAX_UDP_PAYLOAD_LENGTH)
     {
-        aeron_set_err(
+        AERON_SET_ERR(
             EINVAL,
             "mtuLength must be a > HEADER_LENGTH and <= MAX_UDP_PAYLOAD_LENGTH: mtuLength=%" PRIu64,
             mtu_length);
@@ -1185,7 +1203,7 @@ int aeron_driver_context_validate_mtu_length(uint64_t mtu_length)
 
     if ((mtu_length & (AERON_LOGBUFFER_FRAME_ALIGNMENT - 1)) != 0)
     {
-        aeron_set_err(EINVAL, "mtuLength must be a multiple of FRAME_ALIGNMENT: mtuLength=%" PRIu64, mtu_length);
+        AERON_SET_ERR(EINVAL, "mtuLength must be a multiple of FRAME_ALIGNMENT: mtuLength=%" PRIu64, mtu_length);
         return -1;
     }
 
@@ -1310,7 +1328,7 @@ do \
 { \
     if (NULL == (a)) \
     { \
-        aeron_set_err(EINVAL, "%s", strerror(EINVAL)); \
+        AERON_SET_ERR(EINVAL, "%s is null", #a); \
         return (r); \
     } \
 } \
@@ -2031,8 +2049,7 @@ uint64_t aeron_driver_context_get_counters_free_to_reuse_timeout_ns(aeron_driver
     return NULL != context ? context->counter_free_to_reuse_ns : AERON_COUNTERS_FREE_TO_REUSE_TIMEOUT_NS_DEFAULT;
 }
 
-int aeron_driver_context_set_flow_control_receiver_timeout_ns(
-    aeron_driver_context_t *context,  uint64_t value)
+int aeron_driver_context_set_flow_control_receiver_timeout_ns(aeron_driver_context_t *context,  uint64_t value)
 {
     AERON_DRIVER_CONTEXT_SET_CHECK_ARG_AND_RETURN(-1, context);
 
@@ -2042,8 +2059,7 @@ int aeron_driver_context_set_flow_control_receiver_timeout_ns(
 
 uint64_t aeron_driver_context_get_flow_control_receiver_timeout_ns(aeron_driver_context_t *context)
 {
-    return NULL != context ?
-        context->flow_control.receiver_timeout_ns : AERON_FLOW_CONTROL_RECEIVER_TIMEOUT_NS_DEFAULT;
+    return NULL != context ? context->flow_control.receiver_timeout_ns : AERON_FLOW_CONTROL_RECEIVER_TIMEOUT_NS_DEFAULT;
 }
 
 int aeron_driver_context_set_flow_control_group_tag(aeron_driver_context_t *context, int64_t value)
@@ -2458,4 +2474,18 @@ uint64_t aeron_driver_context_get_re_resolution_check_interval_ns(aeron_driver_c
 {
     return NULL != context ?
         context->re_resolution_check_interval_ns : AERON_DRIVER_RERESOLUTION_CHECK_INTERVAL_NS_DEFAULT;
+}
+
+int64_t aeron_driver_context_set_conductor_cycle_threshold_ns(aeron_driver_context_t *context, uint64_t value)
+{
+    AERON_DRIVER_CONTEXT_SET_CHECK_ARG_AND_RETURN(-1, context);
+
+    return context->conductor_cycle_threshold_ns = value;
+    return 0;
+}
+
+int64_t aeron_driver_context_get_conductor_cycle_threshold_ns(aeron_driver_context_t *context)
+{
+    return NULL != context ?
+        context->conductor_cycle_threshold_ns : AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD_NS_DEFAULT;
 }

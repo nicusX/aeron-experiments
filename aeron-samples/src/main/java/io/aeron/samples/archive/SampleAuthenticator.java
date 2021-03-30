@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import java.nio.charset.StandardCharsets;
 /**
  * A sample {@link Authenticator} to demonstrate usage based on some hardcoded credentials.
  */
-public class SampleAuthenticator implements Authenticator
+public final class SampleAuthenticator implements Authenticator
 {
     private static final String CREDENTIALS_STRING_NO_CHALLENGE = "admin:admin";
     private static final String CREDENTIALS_STRING_REQUIRING_CHALLENGE = "admin:adminC";

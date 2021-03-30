@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import static java.util.concurrent.atomic.AtomicIntegerFieldUpdater.newUpdater;
 /**
  * Counter stored in a file managed by the media driver which can be observed with AeronStat.
  */
-public class Counter extends AtomicCounter
+public final class Counter extends AtomicCounter
 {
     private static final AtomicIntegerFieldUpdater<Counter> IS_CLOSED_UPDATER = newUpdater(Counter.class, "isClosed");
 

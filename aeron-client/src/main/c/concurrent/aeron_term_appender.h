@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,8 +44,8 @@ inline int aeron_term_appender_check_term(int32_t expected_term_id, int32_t term
 {
     if (expected_term_id != term_id)
     {
-        aeron_set_err(EINVAL, "action possibly delayed: expectedTermId=%" PRId32 " termId=%" PRId32,
-            expected_term_id, term_id);
+        AERON_SET_ERR(
+            EINVAL, "action possibly delayed: expectedTermId=%" PRId32 " termId=%" PRId32, expected_term_id, term_id);
         return -1;
     }
 

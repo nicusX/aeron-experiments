@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,10 +26,35 @@ import static io.aeron.agent.ClusterEventDissector.dissectNewLeadershipTerm;
  */
 public enum ClusterEventCode implements EventCode
 {
+    /**
+     * State change events within a cluster election.
+     */
     ELECTION_STATE_CHANGE(1, ClusterEventDissector::dissectStateChange),
+
+    /**
+     * A new term of leadership is to begin for an elected cluster member.
+     */
     NEW_LEADERSHIP_TERM(2, (eventCode, buffer, offset, builder) -> dissectNewLeadershipTerm(buffer, offset, builder)),
+
+    /**
+     * State change in the cluster node consensus module.
+     */
     STATE_CHANGE(3, ClusterEventDissector::dissectStateChange),
-    ROLE_CHANGE(4, ClusterEventDissector::dissectStateChange);
+
+    /**
+     * Role change for the cluster member.
+     */
+    ROLE_CHANGE(4, ClusterEventDissector::dissectStateChange),
+
+    /**
+     * A Canvass position event to notify the state of a member's log before nomination.
+     */
+    CANVASS_POSITION(5, ClusterEventDissector::dissectCanvassPosition),
+
+    /**
+     * A vote request for new leadership.
+     */
+    REQUEST_VOTE(6, ClusterEventDissector::dissectRequestVote);
 
     static final int EVENT_CODE_TYPE = EventCodeType.CLUSTER.getTypeCode();
     private static final ClusterEventCode[] EVENT_CODE_BY_ID;
@@ -61,9 +86,9 @@ public enum ClusterEventCode implements EventCode
         this.dissector = dissector;
     }
 
-    static ClusterEventCode get(final int eventCodeId)
+    static ClusterEventCode get(final int id)
     {
-        return EVENT_CODE_BY_ID[eventCodeId];
+        return id >= 0 && id < EVENT_CODE_BY_ID.length ? EVENT_CODE_BY_ID[id] : null;
     }
 
     /**
@@ -74,6 +99,34 @@ public enum ClusterEventCode implements EventCode
         return id;
     }
 
+    /**
+     * Get {@link ClusterEventCode#id()} from {@link #id()}.
+     *
+     * @return get {@link ClusterEventCode#id()} from {@link #id()}.
+     */
+    public int toEventCodeId()
+    {
+        return EVENT_CODE_TYPE << 16 | (id() & 0xFFFF);
+    }
+
+    /**
+     * Get {@link ClusterEventCode} from its event code id.
+     *
+     * @param eventCodeId to convert.
+     * @return {@link ClusterEventCode} from its event code id.
+     */
+    public static ClusterEventCode fromEventCodeId(final int eventCodeId)
+    {
+        return get(eventCodeId - (EVENT_CODE_TYPE << 16));
+    }
+
+    /**
+     * Decode an event serialised in a buffer to a provided {@link StringBuilder}.
+     *
+     * @param buffer  containing the encoded event.
+     * @param offset  offset at which the event begins.
+     * @param builder to write the decoded event to.
+     */
     public void decode(final MutableDirectBuffer buffer, final int offset, final StringBuilder builder)
     {
         dissector.dissect(this, buffer, offset, builder);

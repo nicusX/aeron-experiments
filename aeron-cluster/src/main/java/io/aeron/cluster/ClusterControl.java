@@ -1,5 +1,5 @@
 /*
- *  Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -256,7 +256,7 @@ public class ClusterControl
         if (1 != args.length)
         {
             System.out.format("Usage: [-Daeron.dir=<directory containing CnC file> -Daeron.cluster.id=<id>] " +
-                ClusterControl.class.getSimpleName() + " <action>%n");
+                ClusterControl.class.getName() + " <action>%n");
 
             System.exit(0);
         }

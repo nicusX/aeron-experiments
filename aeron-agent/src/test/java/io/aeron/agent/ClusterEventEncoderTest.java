@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,6 +68,8 @@ class ClusterEventEncoderTest
         final long timestamp = 32423436;
         final int leaderMemberId = 42;
         final int logSessionId = 18;
+        final long termBaseLogPosition = 23874;
+        final long leaderRecordingId = 9;
         final boolean isStartup = true;
 
         final int encodedLength = encodeNewLeadershipTerm(
@@ -78,7 +80,9 @@ class ClusterEventEncoderTest
             logLeadershipTermId,
             logTruncatePosition,
             leadershipTermId,
+            termBaseLogPosition,
             logPosition,
+            leaderRecordingId,
             timestamp,
             leaderMemberId,
             logSessionId,
@@ -98,7 +102,11 @@ class ClusterEventEncoderTest
         relativeOffset += SIZE_OF_LONG;
         assertEquals(leadershipTermId, buffer.getLong(offset + relativeOffset, LITTLE_ENDIAN));
         relativeOffset += SIZE_OF_LONG;
+        assertEquals(termBaseLogPosition, buffer.getLong(offset + relativeOffset, LITTLE_ENDIAN));
+        relativeOffset += SIZE_OF_LONG;
         assertEquals(logPosition, buffer.getLong(offset + relativeOffset, LITTLE_ENDIAN));
+        relativeOffset += SIZE_OF_LONG;
+        assertEquals(leaderRecordingId, buffer.getLong(offset + relativeOffset, LITTLE_ENDIAN));
         relativeOffset += SIZE_OF_LONG;
         assertEquals(timestamp, buffer.getLong(offset + relativeOffset, LITTLE_ENDIAN));
         relativeOffset += SIZE_OF_LONG;
@@ -112,7 +120,7 @@ class ClusterEventEncoderTest
     @Test
     void testNewLeaderShipTermLength()
     {
-        assertEquals(SIZE_OF_LONG * 5 + SIZE_OF_INT * 3, newLeaderShipTermLength());
+        assertEquals(SIZE_OF_LONG * 7 + SIZE_OF_INT * 3, newLeaderShipTermLength());
     }
 
     @Test

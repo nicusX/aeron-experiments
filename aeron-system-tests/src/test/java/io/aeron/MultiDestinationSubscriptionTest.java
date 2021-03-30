@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,29 +17,31 @@ package io.aeron;
 
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
+import io.aeron.exceptions.RegistrationException;
 import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.Header;
 import io.aeron.logbuffer.LogBufferDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
-import io.aeron.test.*;
+import io.aeron.test.SlowTest;
+import io.aeron.test.Tests;
 import io.aeron.test.driver.MediaDriverTestWatcher;
 import io.aeron.test.driver.TestMediaDriver;
-import org.agrona.CloseHelper;
-import org.agrona.DirectBuffer;
-import org.agrona.IoUtil;
-import org.agrona.SystemUtil;
+import org.agrona.*;
 import org.agrona.collections.MutableLong;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.io.File;
 import java.util.function.Supplier;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 public class MultiDestinationSubscriptionTest
@@ -60,7 +62,7 @@ public class MultiDestinationSubscriptionTest
     private static final int NUM_MESSAGES_PER_TERM = 64;
     private static final int MESSAGE_LENGTH =
         (TERM_BUFFER_LENGTH / NUM_MESSAGES_PER_TERM) - DataHeaderFlyweight.HEADER_LENGTH;
-    private static final String ROOT_DIR = SystemUtil.tmpDirName() + "aeron-system-tests" + File.separator;
+    private static final String ROOT_DIR = CommonContext.getAeronDirectoryName() + File.separator;
 
     private final MediaDriver.Context driverContextA = new MediaDriver.Context();
     private final MediaDriver.Context driverContextB = new MediaDriver.Context();
@@ -80,14 +82,14 @@ public class MultiDestinationSubscriptionTest
     @RegisterExtension
     public final MediaDriverTestWatcher testWatcher = new MediaDriverTestWatcher();
 
-    private void launch()
+    private void launch(final ErrorHandler errorHandler)
     {
         final String baseDirA = ROOT_DIR + "A";
 
         buffer.putInt(0, 1);
 
         driverContextA
-            .errorHandler(Tests::onError)
+            .errorHandler(errorHandler)
             .publicationTermBufferLength(TERM_BUFFER_LENGTH)
             .aeronDirectoryName(baseDirA)
             .threadingMode(ThreadingMode.SHARED);
@@ -121,7 +123,7 @@ public class MultiDestinationSubscriptionTest
     @Timeout(10)
     public void subscriptionCloseShouldAlsoCloseMediaDriverPorts()
     {
-        launch();
+        launch(Tests::onError);
 
         final String publicationChannelA = new ChannelUriStringBuilder()
             .media(CommonContext.UDP_MEDIA)
@@ -141,9 +143,40 @@ public class MultiDestinationSubscriptionTest
 
     @Test
     @Timeout(10)
+    @EnabledOnOs(OS.LINUX)
+    public void destinationShouldInheritSocketBufferLengthsFromSubscription()
+    {
+        launch(Tests::onError);
+
+        final String publicationChannelA = new ChannelUriStringBuilder()
+            .media(CommonContext.UDP_MEDIA)
+            .endpoint("127.0.0.1:24325")
+            .build();
+
+        subscription = clientA.addSubscription(SUB_URI + "|so-sndbuf=32768|so-rcvbuf=32768|rcv-wnd=32768", STREAM_ID);
+        subscription.addDestination(publicationChannelA);
+    }
+
+    @Test
+    @Timeout(10)
+    public void addDestinationWithSpySubscriptionsShouldFailWithRegistrationException()
+    {
+        final ErrorHandler mockErrorHandler = mock(ErrorHandler.class);
+        launch(mockErrorHandler);
+
+        subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
+
+        final RegistrationException registrationException = assertThrows(
+            RegistrationException.class, () -> subscription.addDestination("aeron-spy:" + SUB_MDC_DESTINATION_URI));
+
+        assertThat(registrationException.getMessage(), containsString("spies are invalid"));
+    }
+
+    @Test
+    @Timeout(10)
     public void shouldSpinUpAndShutdownWithUnicast()
     {
-        launch();
+        launch(Tests::onError);
 
         subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
         subscription.addDestination(PUB_UNICAST_URI);
@@ -157,7 +190,7 @@ public class MultiDestinationSubscriptionTest
     @Timeout(10)
     public void shouldSpinUpAndShutdownWithMulticast()
     {
-        launch();
+        launch(Tests::onError);
 
         subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
         final long correlationId = subscription.asyncAddDestination(PUB_MULTICAST_URI);
@@ -173,7 +206,7 @@ public class MultiDestinationSubscriptionTest
     @Timeout(20)
     public void shouldSpinUpAndShutdownWithDynamicMdc()
     {
-        launch();
+        launch(Tests::onError);
 
         subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
         subscription.addDestination(SUB_MDC_DESTINATION_URI);
@@ -189,7 +222,7 @@ public class MultiDestinationSubscriptionTest
     {
         final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
 
-        launch();
+        launch(Tests::onError);
 
         subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
         subscription.addDestination(PUB_UNICAST_URI);
@@ -218,7 +251,7 @@ public class MultiDestinationSubscriptionTest
     {
         final String unicastUri2 = "aeron:udp?endpoint=localhost:24326";
 
-        launch();
+        launch(Tests::onError);
 
         subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
         subscription.addDestination(PUB_UNICAST_URI);
@@ -266,7 +299,7 @@ public class MultiDestinationSubscriptionTest
     @Timeout(10)
     public void shouldFindMdsSubscriptionWithTags()
     {
-        launch();
+        launch(Tests::onError);
 
         subscription = clientA.addSubscription(SUB_URI + "|tags=1001", STREAM_ID);
         subscription.addDestination(PUB_UNICAST_URI);
@@ -295,7 +328,7 @@ public class MultiDestinationSubscriptionTest
     {
         final String unicastUri2 = "aeron:udp?endpoint=localhost:24326";
 
-        launch();
+        launch(Tests::onError);
 
         subscription = clientA.addSubscription(SUB_URI + "|tags=1001", STREAM_ID);
         subscription.addDestination(PUB_UNICAST_URI);
@@ -348,14 +381,13 @@ public class MultiDestinationSubscriptionTest
         final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
         final String tags = "1,2";
 
-        launch();
+        launch(Tests::onError);
 
-        final ChannelUriStringBuilder builder = new ChannelUriStringBuilder()
+        final String subscriptionChannel = new ChannelUriStringBuilder()
             .media(CommonContext.UDP_MEDIA)
             .tags(tags)
-            .controlMode(CommonContext.MDC_CONTROL_MODE_MANUAL);
-
-        final String subscriptionChannel = builder.build();
+            .controlMode(CommonContext.MDC_CONTROL_MODE_MANUAL)
+            .build();
 
         subscription = clientA.addSubscription(subscriptionChannel, STREAM_ID);
         final Subscription copySubscription = clientA.addSubscription(subscriptionChannel, STREAM_ID);
@@ -386,7 +418,7 @@ public class MultiDestinationSubscriptionTest
     {
         final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
 
-        launch();
+        launch(Tests::onError);
 
         subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
         subscription.addDestination(PUB_MULTICAST_URI);
@@ -414,7 +446,7 @@ public class MultiDestinationSubscriptionTest
     {
         final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
 
-        launch();
+        launch(Tests::onError);
 
         subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
         subscription.addDestination(SUB_MDC_DESTINATION_URI);
@@ -446,16 +478,13 @@ public class MultiDestinationSubscriptionTest
         final String tags = "1,2";
         final int pubTag = 2;
 
-        launch();
+        launch(Tests::onError);
 
-        final ChannelUriStringBuilder builder = new ChannelUriStringBuilder();
-        builder
-            .clear()
+        final String publicationChannelA = new ChannelUriStringBuilder()
             .tags(tags)
             .media(CommonContext.UDP_MEDIA)
-            .endpoint(UNICAST_ENDPOINT_A);
-
-        final String publicationChannelA = builder.build();
+            .endpoint(UNICAST_ENDPOINT_A)
+            .build();
 
         subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
         subscription.addDestination(publicationChannelA);
@@ -480,26 +509,22 @@ public class MultiDestinationSubscriptionTest
         final int termId = LogBufferDescriptor.computeTermIdFromPosition(position, positionBitsToShift, initialTermId);
         final int termOffset = (int)(position & (publicationA.termBufferLength() - 1));
 
-        builder
-            .clear()
+        final String publicationChannelB = new ChannelUriStringBuilder()
             .media(CommonContext.UDP_MEDIA)
             .isSessionIdTagged(true)
             .sessionId(pubTag)
             .initialTermId(initialTermId)
             .termId(termId)
             .termOffset(termOffset)
-            .endpoint(UNICAST_ENDPOINT_B);
-
-        final String publicationChannelB = builder.build();
+            .endpoint(UNICAST_ENDPOINT_B)
+            .build();
 
         publicationB = clientA.addExclusivePublication(publicationChannelB, STREAM_ID);
 
-        builder
-            .clear()
+        final String destinationChannel = new ChannelUriStringBuilder()
             .media(CommonContext.UDP_MEDIA)
-            .endpoint(UNICAST_ENDPOINT_B);
-
-        final String destinationChannel = builder.build();
+            .endpoint(UNICAST_ENDPOINT_B)
+            .build();
 
         subscription.addDestination(destinationChannel);
 
@@ -526,24 +551,18 @@ public class MultiDestinationSubscriptionTest
         final int numMessagesToSendForA = numMessagesToSend / 2;
         final int numMessagesToSendForB = numMessagesToSend / 2;
 
-        launch();
+        launch(Tests::onError);
         launchSecond();
 
-        final ChannelUriStringBuilder builder = new ChannelUriStringBuilder();
-
-        builder
-            .clear()
+        final String publicationChannelA = new ChannelUriStringBuilder()
             .media(CommonContext.UDP_MEDIA)
-            .endpoint(UNICAST_ENDPOINT_A);
+            .endpoint(UNICAST_ENDPOINT_A)
+            .build();
 
-        final String publicationChannelA = builder.build();
-
-        builder
-            .clear()
+        final String destinationB = new ChannelUriStringBuilder()
             .media(CommonContext.UDP_MEDIA)
-            .endpoint(UNICAST_ENDPOINT_B);
-
-        final String destinationB = builder.build();
+            .endpoint(UNICAST_ENDPOINT_B)
+            .build();
 
         subscription = clientA.addSubscription(SUB_URI, STREAM_ID);
         subscription.addDestination(publicationChannelA);
@@ -551,14 +570,12 @@ public class MultiDestinationSubscriptionTest
 
         publicationA = clientA.addExclusivePublication(publicationChannelA, STREAM_ID);
 
-        builder
-            .clear()
+        final String publicationChannelB = new ChannelUriStringBuilder()
             .media(CommonContext.UDP_MEDIA)
             .initialPosition(0L, publicationA.initialTermId(), publicationA.termBufferLength())
             .sessionId(publicationA.sessionId())
-            .endpoint(UNICAST_ENDPOINT_B);
-
-        final String publicationChannelB = builder.build();
+            .endpoint(UNICAST_ENDPOINT_B)
+            .build();
 
         publicationB = clientB.addExclusivePublication(publicationChannelB, STREAM_ID);
         final MutableLong position = new MutableLong(Long.MIN_VALUE);
@@ -614,9 +631,6 @@ public class MultiDestinationSubscriptionTest
     private void verifyFragments(final FragmentHandler fragmentHandler, final int numMessagesToSend)
     {
         verify(fragmentHandler, times(numMessagesToSend)).onFragment(
-            any(DirectBuffer.class),
-            anyInt(),
-            eq(MESSAGE_LENGTH),
-            any(Header.class));
+            any(DirectBuffer.class), anyInt(), eq(MESSAGE_LENGTH), any(Header.class));
     }
 }

@@ -1,5 +1,5 @@
 ::
-:: Copyright 2014-2020 Real Logic Limited.
+:: Copyright 2014-2021 Real Logic Limited.
 ::
 :: Licensed under the Apache License, Version 2.0 (the "License");
 :: you may not use this file except in compliance with the License.
@@ -15,15 +15,9 @@
 ::
 
 @echo off
-set /p VERSION=<..\..\..\version.txt
+set "DIR=%~dp0"
 
-"%JAVA_HOME%\bin\java" ^
-    -cp ..\..\..\aeron-all\build\libs\aeron-all-%VERSION%.jar ^
-    -XX:+UseBiasedLocking ^
-    -XX:BiasedLockingStartupDelay=0 ^
-    -XX:+UnlockExperimentalVMOptions ^
-    -XX:+TrustFinalNonStaticFields ^
-    -XX:+UseParallelOldGC ^
+call "%DIR%\..\run-java" ^
     -Djava.net.preferIPv4Stack=true ^
     -Dagrona.disable.bounds.checks=true ^
     -Daeron.sample.messageLength=32 ^

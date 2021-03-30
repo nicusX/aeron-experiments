@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@ import java.util.concurrent.TimeUnit;
 
 import static io.aeron.logbuffer.FrameDescriptor.FRAME_ALIGNMENT;
 import static io.aeron.protocol.DataHeaderFlyweight.HEADER_LENGTH;
-import static io.aeron.test.driver.LossReportTestUtil.verifyLossOccurredForStream;
+import static io.aeron.SystemTests.verifyLossOccurredForStream;
 import static java.util.Arrays.asList;
 import static org.agrona.BitUtil.SIZE_OF_INT;
 import static org.junit.jupiter.api.Assertions.assertEquals;

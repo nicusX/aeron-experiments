@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,11 +43,17 @@ class ArchiveMigration_2_3 implements ArchiveMigrationStep
 {
     private static final int MINIMUM_VERSION = SemanticVersion.compose(3, 0, 0);
 
+    /**
+     * {@inheritDoc}
+     */
     public int minimumVersion()
     {
         return MINIMUM_VERSION;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void migrate(
         final PrintStream stream,
         final ArchiveMarkFile markFile,
@@ -92,6 +98,9 @@ class ArchiveMigration_2_3 implements ArchiveMigrationStep
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "to " + fullVersionString(minimumVersion());
@@ -156,10 +165,7 @@ class ArchiveMigration_2_3 implements ArchiveMigrationStep
     }
 
     private int writeCatalogHeader(
-        final UnsafeBuffer buffer,
-        final int version,
-        final long nextRecordingId,
-        final int alignment)
+        final UnsafeBuffer buffer, final int version, final long nextRecordingId, final int alignment)
     {
         final int catalogHeaderLength = 32;
 

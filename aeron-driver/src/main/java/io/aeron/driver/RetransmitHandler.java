@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ import static io.aeron.driver.RetransmitHandler.State.LINGERING;
  * A max number of retransmits is permitted by {@link Configuration#MAX_RETRANSMITS_DEFAULT}. Additional received NAKs
  * will be ignored if this maximum is reached.
  */
-public class RetransmitHandler
+public final class RetransmitHandler
 {
     private final BiInt2ObjectMap<RetransmitAction> activeRetransmitsMap = new BiInt2ObjectMap<>();
     private final RetransmitAction[] retransmitActionPool = new RetransmitAction[MAX_RETRANSMITS_DEFAULT];

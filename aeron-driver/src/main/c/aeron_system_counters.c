@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,9 +46,11 @@ static aeron_system_counter_t system_counters[] =
         { "Unblocked Control Commands", AERON_SYSTEM_COUNTER_UNBLOCKED_COMMANDS },
         { "Possible TTL Asymmetry", AERON_SYSTEM_COUNTER_POSSIBLE_TTL_ASYMMETRY },
         { "ControllableIdleStrategy status", AERON_SYSTEM_COUNTER_CONTROLLABLE_IDLE_STRATEGY },
-        { "Loss gap fills", AERON_SYSTEM_COUNTER_LOSS_GAP_FILLS},
-        { "Client liveness timeouts", AERON_SYSTEM_COUNTER_CLIENT_TIMEOUTS},
-        { "Resolution changes", AERON_SYSTEM_COUNTER_RESOLUTION_CHANGES}
+        { "Loss gap fills", AERON_SYSTEM_COUNTER_LOSS_GAP_FILLS },
+        { "Client liveness timeouts", AERON_SYSTEM_COUNTER_CLIENT_TIMEOUTS },
+        { "Resolution changes", AERON_SYSTEM_COUNTER_RESOLUTION_CHANGES },
+        { "Conductor max cycle time doing its work (ns)", AERON_SYSTEM_COUNTER_CONDUCTOR_MAX_CYCLE_TIME },
+        { "Conductor work cycle exceeded threshold count", AERON_SYSTEM_COUNTER_CONDUCTOR_CYCLE_TIME_THRESHOLD_EXCEEDED },
     };
 
 static size_t num_system_counters = sizeof(system_counters) / sizeof(aeron_system_counter_t);
@@ -63,14 +65,15 @@ int aeron_system_counters_init(aeron_system_counters_t *counters, aeron_counters
 {
     if (NULL == counters || NULL == manager)
     {
-        aeron_set_err(EINVAL, "%s:%d: %s", __FILE__, __LINE__, strerror(EINVAL));
+        AERON_SET_ERR(
+            EINVAL, "counters = %s, manager = %s", NULL == counters ? "NULL" : "OK", NULL == manager ? "NULL" : "OK");
         return -1;
     }
 
     counters->manager = manager;
     if (aeron_alloc((void **)&counters->counter_ids, sizeof(int32_t) * num_system_counters) < 0)
     {
-        aeron_set_err_from_last_err_code("%s:%d", __FILE__, __LINE__);
+        AERON_APPEND_ERR("%s", "Failed to allocate counter ids");
         return -1;
     }
 

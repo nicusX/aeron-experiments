@@ -1,5 +1,6 @@
 name: Continuous Integration (Low Cadence)
 on:
+  workflow_dispatch:
   repository_dispatch:
     types: run-slow-tests
   schedule:
@@ -15,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        java: [ '8', '11', '15', '16.0.0-ea.24' ]
+        java: [ '8', '11', '16', '17-ea' ]
         os: [ 'ubuntu-20.04', 'windows-latest' ]
     steps:
       - name: Checkout code
@@ -59,7 +60,7 @@ jobs:
           ./gradlew copyTestLogs
       - name: Upload crash logs
         if: always() && steps.copy_test_logs.outputs.dir == 'build/test_logs'
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: crash-logs-${{ matrix.os }}-java-${{ matrix.java }}
           path: ${{ steps.copy_test_logs.outputs.dir }}
@@ -93,13 +94,17 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 8
+      - name: Setup BUILD_JAVA_HOME & BUILD_JAVA_VERSION
+        run: |
+          echo "BUILD_JAVA_HOME=${JAVA_HOME}" >> $GITHUB_ENV
+          echo "BUILD_JAVA_VERSION=8" >> $GITHUB_ENV
       - name: Install compiler
         run: |
           sudo apt-get update
 
-          sudo apt-get install -y g++-${{ matrix.version }} libbsd-dev uuid-dev
+          sudo apt-get install -y g++-${{ matrix.version }} libbsd-dev uuid-dev libidn11
       - name: Build
-        run: cppbuild/cppbuild --sanitise-build --c-warnings-as-errors --cxx-warnings-as-errors --slow-system-tests
+        run: cppbuild/cppbuild --c-warnings-as-errors --cxx-warnings-as-errors --slow-system-tests --no-system-tests
       - name: Copy test logs
         id: copy_test_logs
         if: failure()
@@ -109,7 +114,7 @@ jobs:
           ./gradlew copyTestLogs
       - name: Upload crash logs
         if: always() && steps.copy_test_logs.outputs.dir == 'build/test_logs'
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: crash-logs-c-gcc-${{ matrix.version }}
           path: ${{ steps.copy_test_logs.outputs.dir }}
@@ -141,8 +146,12 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 8
+      - name: Setup BUILD_JAVA_HOME & BUILD_JAVA_VERSION
+        run: |
+          echo "BUILD_JAVA_HOME=${JAVA_HOME}" >> $GITHUB_ENV
+          echo "BUILD_JAVA_VERSION=8" >> $GITHUB_ENV
       - name: Build
-        run: cppbuild/cppbuild --slow-system-tests
+        run: cppbuild/cppbuild --slow-system-tests --no-system-tests
       - name: Copy test logs
         id: copy_test_logs
         if: failure()
@@ -152,7 +161,7 @@ jobs:
           ./gradlew copyTestLogs
       - name: Upload crash logs
         if: always() && steps.copy_test_logs.outputs.dir == 'build/test_logs'
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: crash-logs-c-msvc-latest
           path: ${{ steps.copy_test_logs.outputs.dir }}
@@ -186,13 +195,17 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 8
+      - name: Setup BUILD_JAVA_HOME & BUILD_JAVA_VERSION
+        run: |
+          echo "BUILD_JAVA_HOME=${JAVA_HOME}" >> $GITHUB_ENV
+          echo "BUILD_JAVA_VERSION=8" >> $GITHUB_ENV
       - name: Install compiler
         run: |
           sudo apt-get update
 
-          sudo apt-get install -y g++-${{ matrix.version }} libbsd-dev uuid-dev
+          sudo apt-get install -y g++-${{ matrix.version }} libbsd-dev uuid-dev libidn11
       - name: Build
-        run: cppbuild/cppbuild --sanitise-build --c-warnings-as-errors --cxx-warnings-as-errors
+        run: cppbuild/cppbuild --sanitise-build --c-warnings-as-errors --cxx-warnings-as-errors --slow-system-tests
       - name: Copy test logs
         id: copy_test_logs
         if: failure()
@@ -202,7 +215,7 @@ jobs:
           ./gradlew copyTestLogs
       - name: Upload crash logs
         if: always() && steps.copy_test_logs.outputs.dir == 'build/test_logs'
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: crash-logs-gcc-sanitize-${{ matrix.version }}
           path: ${{ steps.copy_test_logs.outputs.dir }}

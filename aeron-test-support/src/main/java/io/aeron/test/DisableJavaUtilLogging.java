@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,14 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package io.aeron.test;
 
-#ifndef AERON_ARCHIVETESTUTIL_H
-#define AERON_ARCHIVETESTUTIL_H
+import java.util.logging.LogManager;
 
-namespace aeron { namespace test {
+/**
+ * This is an implementation of the {@link LogManager} that disables java util logging completely.
+ * In order to work it must be configured via the system property {@code java.util.logging.config.class}.
+ */
+public class DisableJavaUtilLogging extends LogManager
+{
+    public DisableJavaUtilLogging()
+    {
+        reset(); // Close all logging handlers
+    }
+}
 
-bool fileExists(const char *path);
-
-}}
-
-#endif //AERON_ARCHIVETESTUTIL_H

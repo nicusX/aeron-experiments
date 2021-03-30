@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -135,7 +135,7 @@ final class ArchiveMigrationUtils
             final MappedByteBuffer mappedByteBuffer = channel.map(
                 READ_WRITE,
                 0,
-                RECORDING_FRAME_LENGTH_V2 + recordings.size() * RECORDING_FRAME_LENGTH_V2);
+                RECORDING_FRAME_LENGTH_V2 + (recordings.size() * (long)RECORDING_FRAME_LENGTH_V2));
             mappedByteBuffer.order(LITTLE_ENDIAN);
             try
             {

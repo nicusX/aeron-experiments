@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,7 +16,6 @@
 package io.aeron.archive;
 
 import org.agrona.CloseHelper;
-import org.agrona.ErrorHandler;
 import org.agrona.concurrent.*;
 import org.agrona.concurrent.status.AtomicCounter;
 
@@ -27,8 +26,8 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
     private static final int COMMAND_LIMIT = 10;
 
     private final ManyToOneConcurrentLinkedQueue<Session> closeQueue;
-    private AgentRunner replayerAgentRunner;
     private AgentRunner recorderAgentRunner;
+    private AgentRunner replayerAgentRunner;
 
     DedicatedModeArchiveConductor(final Archive.Context ctx)
     {
@@ -36,6 +35,9 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
         closeQueue = new ManyToOneConcurrentLinkedQueue<>();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onStart()
     {
         super.onStart();
@@ -43,25 +45,21 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
         recorderAgentRunner = new AgentRunner(ctx.recorderIdleStrategy(), errorHandler, ctx.errorCounter(), recorder);
         replayerAgentRunner = new AgentRunner(ctx.replayerIdleStrategy(), errorHandler, ctx.errorCounter(), replayer);
 
-        AgentRunner.startOnThread(replayerAgentRunner, ctx.threadFactory());
         AgentRunner.startOnThread(recorderAgentRunner, ctx.threadFactory());
+        AgentRunner.startOnThread(replayerAgentRunner, ctx.threadFactory());
     }
 
-    protected SessionWorker<RecordingSession> newRecorder()
-    {
-        return new DedicatedModeRecorder(errorHandler, ctx.errorCounter(), closeQueue, ctx.abortLatch());
-    }
-
-    protected SessionWorker<ReplaySession> newReplayer()
-    {
-        return new DedicatedModeReplayer(errorHandler, ctx.errorCounter(), closeQueue, ctx.abortLatch());
-    }
-
+    /**
+     * {@inheritDoc}
+     */
     public int doWork()
     {
         return processCloseQueue() + super.doWork();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     protected void closeSessionWorkers()
     {
         CloseHelper.close(errorHandler, recorderAgentRunner);
@@ -75,6 +73,16 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
                 break;
             }
         }
+    }
+
+    SessionWorker<RecordingSession> newRecorder()
+    {
+        return new DedicatedModeRecorder(errorHandler, ctx.errorCounter(), closeQueue, ctx.abortLatch());
+    }
+
+    SessionWorker<ReplaySession> newReplayer()
+    {
+        return new DedicatedModeReplayer(errorHandler, ctx.errorCounter(), closeQueue, ctx.abortLatch());
     }
 
     private int processCloseQueue()
@@ -109,7 +117,7 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
         private volatile boolean isAbort;
 
         DedicatedModeRecorder(
-            final ErrorHandler errorHandler,
+            final CountedErrorHandler errorHandler,
             final AtomicCounter errorCounter,
             final ManyToOneConcurrentLinkedQueue<Session> closeQueue,
             final CountDownLatch abortLatch)
@@ -122,11 +130,17 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
             this.abortLatch = abortLatch;
         }
 
+        /**
+         * {@inheritDoc}
+         */
         protected void abort()
         {
             isAbort = true;
         }
 
+        /**
+         * {@inheritDoc}
+         */
         public int doWork()
         {
             if (isAbort)
@@ -137,30 +151,25 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
             return drainSessionsQueue() + super.doWork();
         }
 
+        /**
+         * {@inheritDoc}
+         */
         protected void preSessionsClose()
         {
             drainSessionsQueue();
         }
 
-        private int drainSessionsQueue()
-        {
-            int workCount = 0;
-            RecordingSession session;
-
-            while (null != (session = sessionsQueue.poll()))
-            {
-                workCount += 1;
-                super.addSession(session);
-            }
-
-            return workCount;
-        }
-
+        /**
+         * {@inheritDoc}
+         */
         protected void addSession(final RecordingSession session)
         {
             send(session);
         }
 
+        /**
+         * {@inheritDoc}
+         */
         protected void closeSession(final RecordingSession session)
         {
             while (!closeQueue.offer(session))
@@ -178,12 +187,29 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
             }
         }
 
+        /**
+         * {@inheritDoc}
+         */
         protected void postSessionsClose()
         {
             if (isAbort)
             {
                 abortLatch.countDown();
             }
+        }
+
+        private int drainSessionsQueue()
+        {
+            int workCount = 0;
+            RecordingSession session;
+
+            while (null != (session = sessionsQueue.poll()))
+            {
+                workCount += 1;
+                super.addSession(session);
+            }
+
+            return workCount;
         }
 
         private void send(final RecordingSession session)
@@ -213,7 +239,7 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
         private volatile boolean isAbort;
 
         DedicatedModeReplayer(
-            final ErrorHandler errorHandler,
+            final CountedErrorHandler errorHandler,
             final AtomicCounter errorCounter,
             final ManyToOneConcurrentLinkedQueue<Session> closeQueue,
             final CountDownLatch abortLatch)
@@ -226,16 +252,25 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
             this.abortLatch = abortLatch;
         }
 
+        /**
+         * {@inheritDoc}
+         */
         protected void abort()
         {
             isAbort = true;
         }
 
+        /**
+         * {@inheritDoc}
+         */
         protected void addSession(final ReplaySession session)
         {
             send(session);
         }
 
+        /**
+         * {@inheritDoc}
+         */
         public int doWork()
         {
             if (isAbort)
@@ -246,25 +281,17 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
             return drainSessionQueue() + super.doWork();
         }
 
+        /**
+         * {@inheritDoc}
+         */
         protected void preSessionsClose()
         {
             drainSessionQueue();
         }
 
-        private int drainSessionQueue()
-        {
-            int workCount = 0;
-            ReplaySession session;
-
-            while (null != (session = sessionsQueue.poll()))
-            {
-                workCount += 1;
-                super.addSession(session);
-            }
-
-            return workCount;
-        }
-
+        /**
+         * {@inheritDoc}
+         */
         protected void closeSession(final ReplaySession session)
         {
             while (!closeQueue.offer(session))
@@ -282,12 +309,29 @@ final class DedicatedModeArchiveConductor extends ArchiveConductor
             }
         }
 
+        /**
+         * {@inheritDoc}
+         */
         protected void postSessionsClose()
         {
             if (isAbort)
             {
                 abortLatch.countDown();
             }
+        }
+
+        private int drainSessionQueue()
+        {
+            int workCount = 0;
+            ReplaySession session;
+
+            while (null != (session = sessionsQueue.poll()))
+            {
+                workCount += 1;
+                super.addSession(session);
+            }
+
+            return workCount;
         }
 
         private void send(final ReplaySession session)

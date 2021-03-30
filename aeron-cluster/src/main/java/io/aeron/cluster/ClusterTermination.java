@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 package io.aeron.cluster;
+
+
+import io.aeron.cluster.client.ClusterException;
+import io.aeron.exceptions.AeronException;
+import org.agrona.ErrorHandler;
 
 class ClusterTermination
 {
@@ -46,6 +51,7 @@ class ClusterTermination
     }
 
     void terminationPosition(
+        final ErrorHandler errorHandler,
         final ConsensusPublisher consensusPublisher,
         final ClusterMember[] members,
         final ClusterMember thisMember,
@@ -58,7 +64,11 @@ class ClusterTermination
 
             if (member != thisMember)
             {
-                consensusPublisher.terminationPosition(member.publication(), leadershipTermId, position);
+                if (!consensusPublisher.terminationPosition(member.publication(), leadershipTermId, position))
+                {
+                    errorHandler.onError(new ClusterException(
+                        "failed to send termination position to member=" + member.id(), AeronException.Category.WARN));
+                }
             }
         }
     }

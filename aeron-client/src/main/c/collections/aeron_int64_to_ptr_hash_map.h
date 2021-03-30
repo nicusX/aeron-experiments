@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -130,7 +130,7 @@ inline int aeron_int64_to_ptr_hash_map_put(aeron_int64_to_ptr_hash_map_t *map, c
 {
     if (NULL == value)
     {
-        aeron_set_errno(EINVAL);
+        AERON_SET_ERR(EINVAL, "%s", "value must not be null");
         return -1;
     }
 

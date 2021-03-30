@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -55,16 +55,31 @@ public final class EventLogAgent
     private static ResettableClassFileTransformer logTransformer;
     private static Thread thread;
 
+    /**
+     * Premain method to run before the main method of the application.
+     *
+     * @param agentArgs       which are ignored.
+     * @param instrumentation for applying to the agent.
+     */
     public static void premain(final String agentArgs, final Instrumentation instrumentation)
     {
         agent(AgentBuilder.RedefinitionStrategy.DISABLED, instrumentation);
     }
 
+    /**
+     * Agent main method for dynamic attach.
+     *
+     * @param agentArgs       which are ignored.
+     * @param instrumentation for applying to the agent.
+     */
     public static void agentmain(final String agentArgs, final Instrumentation instrumentation)
     {
         agent(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION, instrumentation);
     }
 
+    /**
+     * Remove the transformer and close the agent runner for the event log reader.
+     */
     public static synchronized void removeTransformer()
     {
         if (logTransformer != null)
@@ -437,8 +452,10 @@ public final class EventLogAgent
         final boolean hasNewLeadershipTerm = CLUSTER_EVENT_CODES.contains(ClusterEventCode.NEW_LEADERSHIP_TERM);
         final boolean hasStateChange = CLUSTER_EVENT_CODES.contains(ClusterEventCode.STATE_CHANGE);
         final boolean hasRoleChange = CLUSTER_EVENT_CODES.contains(ClusterEventCode.ROLE_CHANGE);
+        final boolean hasCanvasPosition = CLUSTER_EVENT_CODES.contains(ClusterEventCode.CANVASS_POSITION);
+        final boolean hasRequestVote = CLUSTER_EVENT_CODES.contains(ClusterEventCode.REQUEST_VOTE);
 
-        if (!hasNewLeadershipTerm && !hasStateChange && !hasRoleChange)
+        if (!hasNewLeadershipTerm && !hasStateChange && !hasRoleChange && !hasCanvasPosition && !hasRequestVote)
         {
             return agentBuilder;
         }
@@ -463,6 +480,18 @@ public final class EventLogAgent
                     builder = builder
                         .visit(to(ClusterInterceptor.ConsensusModuleRoleChange.class)
                             .on(named("roleChange")));
+                }
+                if (hasCanvasPosition)
+                {
+                    builder = builder
+                        .visit(to(ClusterInterceptor.CanvassPosition.class)
+                            .on(named("onCanvassPosition")));
+                }
+                if (hasRequestVote)
+                {
+                    builder = builder
+                        .visit(to(ClusterInterceptor.RequestVote.class)
+                            .on(named("onRequestVote")));
                 }
 
                 return builder;

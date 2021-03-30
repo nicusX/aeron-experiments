@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,10 +29,12 @@ import org.agrona.concurrent.status.CountersReader;
 import org.agrona.concurrent.status.UnsafeBufferPosition;
 
 import java.util.ArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 
 import static io.aeron.Aeron.Configuration.IDLE_SLEEP_MS;
 import static io.aeron.Aeron.Configuration.IDLE_SLEEP_NS;
+import static io.aeron.Aeron.NULL_VALUE;
 import static io.aeron.status.HeartbeatTimestamp.HEARTBEAT_TYPE_ID;
 import static java.nio.charset.StandardCharsets.US_ASCII;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -42,9 +44,10 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
  * Client conductor receives responses and notifications from Media Driver and acts on them in addition to forwarding
  * commands from the Client API to the Media Driver conductor.
  */
-class ClientConductor implements Agent
+final class ClientConductor implements Agent
 {
-    private static final long NO_CORRELATION_ID = Aeron.NULL_VALUE;
+    private static final long NO_CORRELATION_ID = NULL_VALUE;
+    private static final long EXPLICIT_CLOSE_LINGER_NS = TimeUnit.SECONDS.toNanos(1);
 
     private final long keepAliveIntervalNs;
     private final long driverTimeoutMs;
@@ -138,6 +141,8 @@ class ClientConductor implements Agent
                     aeron.internalClose();
                 }
 
+                final boolean isTerminating = this.isTerminating;
+                this.isTerminating = true;
                 forceCloseResources();
                 notifyCloseHandlers();
 
@@ -223,7 +228,7 @@ class ClientConductor implements Agent
         if (resource instanceof Subscription)
         {
             final Subscription subscription = (Subscription)resource;
-            subscription.internalClose();
+            subscription.internalClose(NULL_VALUE);
             resourceByRegIdMap.remove(correlationId);
         }
     }
@@ -474,7 +479,8 @@ class ClientConductor implements Agent
                 publication.internalClose();
                 if (publication == resourceByRegIdMap.remove(publication.registrationId()))
                 {
-                    releaseLogBuffers(publication.logBuffers(), publication.originalRegistrationId());
+                    releaseLogBuffers(
+                        publication.logBuffers(), publication.originalRegistrationId(), EXPLICIT_CLOSE_LINGER_NS);
                     asyncCommandIdSet.add(driverProxy.removePublication(publication.registrationId()));
                 }
             }
@@ -536,7 +542,7 @@ class ClientConductor implements Agent
             {
                 ensureNotReentrant();
 
-                subscription.internalClose();
+                subscription.internalClose(EXPLICIT_CLOSE_LINGER_NS);
                 final long registrationId = subscription.registrationId();
                 if (subscription == resourceByRegIdMap.remove(registrationId))
                 {
@@ -808,7 +814,15 @@ class ClientConductor implements Agent
 
     boolean removeAvailableCounterHandler(final long registrationId)
     {
-        return availableCounterHandlerById.remove(registrationId) != null;
+        clientLock.lock();
+        try
+        {
+            return availableCounterHandlerById.remove(registrationId) != null;
+        }
+        finally
+        {
+            clientLock.unlock();
+        }
     }
 
     boolean removeAvailableCounterHandler(final AvailableCounterHandler handler)
@@ -862,7 +876,15 @@ class ClientConductor implements Agent
 
     boolean removeUnavailableCounterHandler(final long registrationId)
     {
-        return unavailableCounterHandlerById.remove(registrationId) != null;
+        clientLock.lock();
+        try
+        {
+            return unavailableCounterHandlerById.remove(registrationId) != null;
+        }
+        finally
+        {
+            clientLock.unlock();
+        }
     }
 
     boolean removeUnavailableCounterHandler(final UnavailableCounterHandler handler)
@@ -916,7 +938,15 @@ class ClientConductor implements Agent
 
     boolean removeCloseHandler(final long registrationId)
     {
-        return closeHandlerByIdMap.remove(registrationId) != null;
+        clientLock.lock();
+        try
+        {
+            return closeHandlerByIdMap.remove(registrationId) != null;
+        }
+        finally
+        {
+            clientLock.unlock();
+        }
     }
 
     boolean removeCloseHandler(final Runnable handler)
@@ -973,13 +1003,16 @@ class ClientConductor implements Agent
         }
     }
 
-    void releaseLogBuffers(final LogBuffers logBuffers, final long registrationId)
+    void releaseLogBuffers(
+        final LogBuffers logBuffers, final long registrationId, final long lingerDurationNs)
     {
         if (logBuffers.decRef() == 0)
         {
-            logBuffers.lingerDeadlineNs(nanoClock.nanoTime() + ctx.resourceLingerDurationNs());
-            logBuffersByIdMap.remove(registrationId);
             lingeringLogBuffers.add(logBuffers);
+            logBuffersByIdMap.remove(registrationId);
+
+            final long lingerNs = NULL_VALUE == lingerDurationNs ? ctx.resourceLingerDurationNs() : lingerDurationNs;
+            logBuffers.lingerDeadlineNs(nanoClock.nanoTime() + lingerNs);
         }
     }
 
@@ -1003,12 +1036,17 @@ class ClientConductor implements Agent
         }
     }
 
-    void closeImages(final Image[] images, final UnavailableImageHandler unavailableImageHandler)
+    void closeImages(
+        final Image[] images, final UnavailableImageHandler unavailableImageHandler, final long lingerNs)
     {
         for (final Image image : images)
         {
             image.close();
-            releaseLogBuffers(image.logBuffers(), image.correlationId());
+        }
+
+        for (final Image image : images)
+        {
+            releaseLogBuffers(image.logBuffers(), image.correlationId(), lingerNs);
         }
 
         if (null != unavailableImageHandler)
@@ -1067,14 +1105,20 @@ class ClientConductor implements Agent
 
         try
         {
-            final long nowNs = nanoClock.nanoTime();
-            workCount += checkTimeouts(nowNs);
+            workCount += checkTimeouts(nanoClock.nanoTime());
             workCount += driverEventsAdapter.receive(correlationId);
         }
-        catch (final Throwable throwable)
+        catch (final AgentTerminationException ex)
         {
-            handleError(throwable);
-
+            if (isClientApiCall(correlationId))
+            {
+                isTerminating = true;
+                forceCloseResources();
+            }
+            throw ex;
+        }
+        catch (final Throwable ex)
+        {
             if (driverEventsAdapter.isInvalid())
             {
                 isTerminating = true;
@@ -1082,14 +1126,16 @@ class ClientConductor implements Agent
 
                 if (!isClientApiCall(correlationId))
                 {
-                    throw new IllegalStateException("Driver events adapter is invalid");
+                    throw new AeronException("Driver events adapter is invalid", ex);
                 }
             }
 
             if (isClientApiCall(correlationId))
             {
-                throw throwable;
+                throw ex;
             }
+
+            handleError(ex);
         }
 
         return workCount;
@@ -1133,10 +1179,10 @@ class ClientConductor implements Agent
                 return;
             }
 
-            if (Thread.interrupted())
+            if (Thread.currentThread().isInterrupted())
             {
                 isTerminating = true;
-                throw new AgentTerminationException("thread interrupted");
+                throw new AeronException("unexpected interrupt");
             }
         }
         while (deadlineNs - nanoClock.nanoTime() > 0);
@@ -1249,13 +1295,13 @@ class ClientConductor implements Agent
             if (resource instanceof Subscription)
             {
                 final Subscription subscription = (Subscription)resource;
-                subscription.internalClose();
+                subscription.internalClose(NULL_VALUE);
             }
             else if (resource instanceof Publication)
             {
                 final Publication publication = (Publication)resource;
                 publication.internalClose();
-                releaseLogBuffers(publication.logBuffers(), publication.originalRegistrationId());
+                releaseLogBuffers(publication.logBuffers(), publication.originalRegistrationId(), NULL_VALUE);
             }
             else if (resource instanceof Counter)
             {
@@ -1277,7 +1323,15 @@ class ClientConductor implements Agent
             {
                 handler.onUnavailableCounter(countersReader, registrationId, counterId);
             }
-            catch (final Exception ex)
+            catch (final AgentTerminationException ex)
+            {
+                if (!isTerminating)
+                {
+                    throw ex;
+                }
+                handleError(ex);
+            }
+            catch (final Throwable ex)
             {
                 handleError(ex);
             }
@@ -1294,6 +1348,14 @@ class ClientConductor implements Agent
         try
         {
             handler.onUnavailableImage(image);
+        }
+        catch (final AgentTerminationException ex)
+        {
+            if (!isTerminating)
+            {
+                throw ex;
+            }
+            handleError(ex);
         }
         catch (final Throwable ex)
         {
@@ -1313,7 +1375,11 @@ class ClientConductor implements Agent
         {
             handler.onAvailableCounter(countersReader, registrationId, counterId);
         }
-        catch (final Exception ex)
+        catch (final AgentTerminationException ex)
+        {
+            throw ex;
+        }
+        catch (final Throwable ex)
         {
             handleError(ex);
         }
@@ -1332,7 +1398,7 @@ class ClientConductor implements Agent
             {
                 closeHandler.run();
             }
-            catch (final Exception ex)
+            catch (final Throwable ex)
             {
                 handleError(ex);
             }

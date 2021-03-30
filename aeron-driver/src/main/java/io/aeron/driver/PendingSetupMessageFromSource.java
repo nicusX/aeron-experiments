@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import io.aeron.driver.media.ReceiveChannelEndpoint;
 
 import java.net.InetSocketAddress;
 
-class PendingSetupMessageFromSource
+final class PendingSetupMessageFromSource
 {
     private final int sessionId;
     private final int streamId;
@@ -46,58 +46,58 @@ class PendingSetupMessageFromSource
         this.controlAddress = controlAddress;
     }
 
-    public int sessionId()
+    int sessionId()
     {
         return sessionId;
     }
 
-    public int streamId()
+    int streamId()
     {
         return streamId;
     }
 
-    public int transportIndex()
+    int transportIndex()
     {
         return transportIndex;
     }
 
-    public ReceiveChannelEndpoint channelEndpoint()
+    ReceiveChannelEndpoint channelEndpoint()
     {
         return channelEndpoint;
     }
 
-    public boolean isPeriodic()
+    boolean isPeriodic()
     {
         return periodic;
     }
 
-    public boolean shouldElicitSetupMessage()
+    boolean shouldElicitSetupMessage()
     {
-        return channelEndpoint.shouldElicitSetupMessage();
+        return channelEndpoint.dispatcher().shouldElicitSetupMessage();
     }
 
-    public void controlAddress(final InetSocketAddress newControlAddress)
+    void controlAddress(final InetSocketAddress newControlAddress)
     {
         this.controlAddress = newControlAddress;
     }
 
-    public InetSocketAddress controlAddress()
+    InetSocketAddress controlAddress()
     {
         return controlAddress;
     }
 
-    public long timeOfStatusMessageNs()
+    long timeOfStatusMessageNs()
     {
         return timeOfStatusMessageNs;
     }
 
-    public void timeOfStatusMessageNs(final long nowNs)
+    void timeOfStatusMessageNs(final long nowNs)
     {
         timeOfStatusMessageNs = nowNs;
     }
 
-    public void removeFromDataPacketDispatcher()
+    void removeFromDataPacketDispatcher()
     {
-        channelEndpoint.removePendingSetup(sessionId, streamId);
+        channelEndpoint.dispatcher().removePendingSetup(sessionId, streamId);
     }
 }

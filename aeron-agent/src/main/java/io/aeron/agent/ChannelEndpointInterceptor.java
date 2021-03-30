@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,9 +26,6 @@ import java.nio.ByteBuffer;
 import static io.aeron.agent.DriverEventCode.*;
 import static io.aeron.agent.DriverEventLogger.LOGGER;
 
-/**
- * Intercepts calls on channel endpoints for logging.
- */
 class ChannelEndpointInterceptor
 {
     static class SenderProxy

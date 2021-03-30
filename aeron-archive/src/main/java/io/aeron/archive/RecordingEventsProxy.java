@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,6 +42,9 @@ class RecordingEventsProxy implements AutoCloseable
         this.publication = publication;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
         CloseHelper.close(publication);
@@ -64,15 +67,12 @@ class RecordingEventsProxy implements AutoCloseable
             .channel(channel)
             .sourceIdentity(sourceIdentity);
 
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + recordingStartedEncoder.encodedLength();
         int attempts = SEND_ATTEMPTS;
         do
         {
-            final long result = publication.offer(buffer, 0, recordingStartedEncoder.encodedLength());
-            if (result > 0)
-            {
-                break;
-            }
-            else if (Publication.NOT_CONNECTED == result)
+            final long result = publication.offer(buffer, 0, length);
+            if (result > 0 || Publication.NOT_CONNECTED == result)
             {
                 break;
             }

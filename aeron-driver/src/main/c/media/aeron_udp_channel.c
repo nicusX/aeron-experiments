@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ int aeron_ipv4_multicast_control_address(struct sockaddr_in *data_addr, struct s
 
     if ((bytes[last_byte_index] & 0x1u) == 0)
     {
-        aeron_set_err(EINVAL, "%s", "Multicast data address must be odd");
+        AERON_SET_ERR(EINVAL, "%s", "Multicast data address must be odd");
         return -1;
     }
 
@@ -60,7 +60,7 @@ int aeron_ipv6_multicast_control_address(struct sockaddr_in6 *data_addr, struct 
 
     if ((bytes[last_byte_index] & 0x1u) == 0)
     {
-        aeron_set_err(EINVAL, "%s", "Multicast data address must be odd");
+        AERON_SET_ERR(EINVAL, "%s", "Multicast data address must be odd");
         return -1;
     }
 
@@ -85,7 +85,7 @@ int aeron_multicast_control_address(struct sockaddr_storage *data_addr, struct s
             (struct sockaddr_in *)data_addr, (struct sockaddr_in *)control_addr);
     }
 
-    aeron_set_err(EINVAL, "unknown address family: %d", data_addr->ss_family);
+    AERON_SET_ERR(EINVAL, "unknown address family: %d", data_addr->ss_family);
     return -1;
 }
 
@@ -178,7 +178,7 @@ int aeron_udp_channel_parse(
 
     if (aeron_alloc((void **)&_channel, sizeof(aeron_udp_channel_t)) < 0)
     {
-        aeron_set_err(ENOMEM, "%s", "could not allocate UDP channel");
+        AERON_APPEND_ERR("UDP channel, uri=%.*s", (int)uri_length, uri);
         return -1;
     }
 
@@ -201,10 +201,13 @@ int aeron_udp_channel_parse(
     _channel->is_multicast = false;
     _channel->tag_id = AERON_URI_INVALID_TAG;
     _channel->ats_status = AERON_URI_ATS_STATUS_DEFAULT;
+    _channel->socket_rcvbuf_length = 0;
+    _channel->socket_sndbuf_length = 0;
+    _channel->receiver_window_length = 0;
 
     if (_channel->uri.type != AERON_URI_UDP)
     {
-        aeron_set_err(-AERON_ERROR_CODE_INVALID_CHANNEL, "%s", "UDP channels must use UDP URIs");
+        AERON_SET_ERR(-AERON_ERROR_CODE_INVALID_CHANNEL, "%s", "UDP channels must use UDP URIs");
         goto error_cleanup;
     }
 
@@ -218,7 +221,7 @@ int aeron_udp_channel_parse(
 
     if (_channel->is_dynamic_control_mode && NULL == _channel->uri.params.udp.control)
     {
-        aeron_set_err(-AERON_ERROR_CODE_INVALID_CHANNEL, "%s", "explicit control expected with dynamic control mode");
+        AERON_SET_ERR(-AERON_ERROR_CODE_INVALID_CHANNEL, "%s", "explicit control expected with dynamic control mode");
         goto error_cleanup;
     }
 
@@ -229,7 +232,9 @@ int aeron_udp_channel_parse(
 
     if (has_no_distinguishing_characteristic && !_channel->is_manual_control_mode)
     {
-        aeron_set_err(-AERON_ERROR_CODE_INVALID_CHANNEL, "%s",
+        AERON_SET_ERR(
+            -AERON_ERROR_CODE_INVALID_CHANNEL,
+            "%s",
             "URIs for UDP must specify endpoint, control, tags, or control-mode=manual");
         goto error_cleanup;
     }
@@ -248,6 +253,7 @@ int aeron_udp_channel_parse(
         if (aeron_name_resolver_resolve_host_and_port(
             resolver, _channel->uri.params.udp.endpoint, AERON_UDP_CHANNEL_ENDPOINT_KEY, false, &endpoint_addr) < 0)
         {
+            AERON_APPEND_ERR("URI: %.*s", (int) uri_length, uri);
             goto error_cleanup;
         }
     }
@@ -274,13 +280,29 @@ int aeron_udp_channel_parse(
     {
         if ((_channel->tag_id = aeron_uri_parse_tag(_channel->uri.params.udp.channel_tag)) == AERON_URI_INVALID_TAG)
         {
-            aeron_set_err(-AERON_ERROR_CODE_INVALID_CHANNEL, "could not parse channel tag string: %s",
+            AERON_SET_ERR(
+                -AERON_ERROR_CODE_INVALID_CHANNEL,
+                "could not parse channel tag string: %s",
                 _channel->uri.params.udp.channel_tag);
             goto error_cleanup;
         }
     }
 
     if (aeron_uri_get_ats(&_channel->uri.params.udp.additional_params, &_channel->ats_status) < 0)
+    {
+        goto error_cleanup;
+    }
+
+    if (aeron_uri_get_socket_buf_lengths(
+        &_channel->uri.params.udp.additional_params,
+        &_channel->socket_sndbuf_length,
+        &_channel->socket_rcvbuf_length) < 0)
+    {
+        goto error_cleanup;
+    }
+
+    if (aeron_uri_get_receiver_window_length(
+        &_channel->uri.params.udp.additional_params, &_channel->receiver_window_length) < 0)
     {
         goto error_cleanup;
     }
@@ -296,7 +318,7 @@ int aeron_udp_channel_parse(
         if (aeron_find_multicast_interface(
             endpoint_addr.ss_family, _channel->uri.params.udp.bind_interface, &interface_addr, &interface_index) < 0)
         {
-            aeron_set_err(
+            AERON_SET_ERR(
                 -AERON_ERROR_CODE_INVALID_CHANNEL,
                 "could not find interface=(%s): %s",
                 _channel->uri.params.udp.bind_interface, aeron_errmsg());
@@ -382,3 +404,5 @@ void aeron_udp_channel_delete(aeron_udp_channel_t *channel)
 extern bool aeron_udp_channel_is_wildcard(aeron_udp_channel_t *channel);
 
 extern bool aeron_udp_channel_equals(aeron_udp_channel_t *a, aeron_udp_channel_t *b);
+
+extern size_t aeron_udp_channel_receiver_window(aeron_udp_channel_t *channel, size_t default_receiver_window);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -139,7 +139,9 @@ class ConsensusAdapter implements FragmentHandler, AutoCloseable
                     newLeadershipTermDecoder.logLeadershipTermId(),
                     newLeadershipTermDecoder.logTruncatePosition(),
                     newLeadershipTermDecoder.leadershipTermId(),
+                    newLeadershipTermDecoder.termBaseLogPosition(),
                     newLeadershipTermDecoder.logPosition(),
+                    newLeadershipTermDecoder.leaderRecordingId(),
                     newLeadershipTermDecoder.timestamp(),
                     newLeadershipTermDecoder.leaderMemberId(),
                     newLeadershipTermDecoder.logSessionId(),
@@ -182,7 +184,8 @@ class ConsensusAdapter implements FragmentHandler, AutoCloseable
                 consensusModuleAgent.onCatchupPosition(
                     catchupPositionDecoder.leadershipTermId(),
                     catchupPositionDecoder.logPosition(),
-                    catchupPositionDecoder.followerMemberId());
+                    catchupPositionDecoder.followerMemberId(),
+                    catchupPositionDecoder.catchupEndpoint());
                 break;
 
             case StopCatchupDecoder.TEMPLATE_ID:

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,6 @@ import java.io.File;
 import java.nio.file.Paths;
 import java.util.EnumSet;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static io.aeron.CommonContext.IPC_CHANNEL;
@@ -45,8 +44,6 @@ import static io.aeron.agent.DriverEventCode.*;
 import static io.aeron.agent.EventConfiguration.EVENT_READER_FRAME_LIMIT;
 import static io.aeron.agent.EventConfiguration.EVENT_RING_BUFFER;
 import static java.util.Collections.synchronizedSet;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.collection.IsIterableContainingInAnyOrder.containsInAnyOrder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.params.provider.EnumSource.Mode.INCLUDE;
 
@@ -55,9 +52,7 @@ public class DriverLoggingAgentTest
     private static final String NETWORK_CHANNEL = "aeron:udp?endpoint=localhost:24325";
     private static final int STREAM_ID = 1777;
 
-    private static final Set<DriverEventCode> LOGGED_EVENTS = synchronizedSet(EnumSet.noneOf(DriverEventCode.class));
     private static final Set<DriverEventCode> WAIT_LIST = synchronizedSet(EnumSet.noneOf(DriverEventCode.class));
-    private static CountDownLatch latch;
 
     private File testDir;
 
@@ -65,9 +60,6 @@ public class DriverLoggingAgentTest
     public void after()
     {
         AgentTests.afterAgent();
-
-        LOGGED_EVENTS.clear();
-        WAIT_LIST.clear();
 
         if (testDir != null && testDir.exists())
         {
@@ -77,7 +69,7 @@ public class DriverLoggingAgentTest
 
     @Test
     @Timeout(10)
-    public void logAllNetworkChannel() throws InterruptedException
+    public void logAllNetworkChannel()
     {
         testLogMediaDriverEvents(NETWORK_CHANNEL, "all", EnumSet.of(
             FRAME_IN,
@@ -103,7 +95,7 @@ public class DriverLoggingAgentTest
 
     @Test
     @Timeout(10)
-    public void logAllIpcChannel() throws InterruptedException
+    public void logAllIpcChannel()
     {
         testLogMediaDriverEvents(IPC_CHANNEL, "all", EnumSet.of(
             CMD_IN_ADD_PUBLICATION,
@@ -134,7 +126,7 @@ public class DriverLoggingAgentTest
         "CMD_OUT_AVAILABLE_IMAGE"
     })
     @Timeout(10)
-    public void logIndividualEvents(final DriverEventCode eventCode) throws InterruptedException
+    public void logIndividualEvents(final DriverEventCode eventCode)
     {
         try
         {
@@ -148,17 +140,13 @@ public class DriverLoggingAgentTest
 
     private void testLogMediaDriverEvents(
         final String channel, final String enabledEvents, final EnumSet<DriverEventCode> expectedEvents)
-        throws InterruptedException
     {
         before(enabledEvents, expectedEvents);
-
-        final String aeronDirectoryName = testDir.toPath().resolve("media").toString();
 
         final MediaDriver.Context driverCtx = new MediaDriver.Context()
             .errorHandler(Tests::onError)
             .publicationLingerTimeoutNs(0)
-            .timerIntervalNs(TimeUnit.MILLISECONDS.toNanos(1))
-            .aeronDirectoryName(aeronDirectoryName);
+            .timerIntervalNs(TimeUnit.MILLISECONDS.toNanos(1));
 
         try (MediaDriver ignore = MediaDriver.launch(driverCtx))
         {
@@ -186,10 +174,8 @@ public class DriverLoggingAgentTest
                 assertEquals(counter.get(), 1);
             }
 
-            latch.await();
+            Tests.await(WAIT_LIST::isEmpty);
         }
-
-        assertThat(LOGGED_EVENTS, containsInAnyOrder(expectedEvents.toArray()));
     }
 
     private void before(final String enabledEvents, final EnumSet<DriverEventCode> expectedEvents)
@@ -198,7 +184,7 @@ public class DriverLoggingAgentTest
         System.setProperty(EventConfiguration.ENABLED_EVENT_CODES_PROP_NAME, enabledEvents);
         AgentTests.beforeAgent();
 
-        latch = new CountDownLatch(expectedEvents.size());
+        WAIT_LIST.clear();
         WAIT_LIST.addAll(expectedEvents);
 
         testDir = Paths.get(IoUtil.tmpDirName(), "driver-test").toFile();
@@ -208,7 +194,7 @@ public class DriverLoggingAgentTest
         }
     }
 
-    static class StubEventLogReaderAgent implements Agent, MessageHandler
+    static final class StubEventLogReaderAgent implements Agent, MessageHandler
     {
         public String roleName()
         {
@@ -222,13 +208,7 @@ public class DriverLoggingAgentTest
 
         public void onMessage(final int msgTypeId, final MutableDirectBuffer buffer, final int index, final int length)
         {
-            final DriverEventCode code = DriverEventCode.get(msgTypeId);
-            LOGGED_EVENTS.add(code);
-
-            if (WAIT_LIST.remove(code))
-            {
-                latch.countDown();
-            }
+            WAIT_LIST.remove(DriverEventCode.get(msgTypeId));
         }
     }
 }

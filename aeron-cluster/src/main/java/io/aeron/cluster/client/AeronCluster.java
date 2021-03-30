@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -106,9 +106,9 @@ public final class AeronCluster implements AutoCloseable
             ctx.conclude();
 
             final Aeron aeron = ctx.aeron();
-            final long deadlineNs = aeron.context().nanoClock().nanoTime() + ctx.messageTimeoutNs();
             subscription = aeron.addSubscription(ctx.egressChannel(), ctx.egressStreamId());
 
+            final long deadlineNs = aeron.context().nanoClock().nanoTime() + ctx.messageTimeoutNs();
             final IdleStrategy idleStrategy = ctx.idleStrategy();
             asyncConnect = new AsyncConnect(ctx, subscription, deadlineNs);
             final AgentInvoker aeronClientInvoker = aeron.conductorAgentInvoker();
@@ -768,7 +768,7 @@ public final class AeronCluster implements AutoCloseable
     /**
      * Configuration options for cluster client.
      */
-    public static class Configuration
+    public static final class Configuration
     {
         /**
          * Major version of the network protocol from client to consensus module. If these don't match then client
@@ -940,7 +940,7 @@ public final class AeronCluster implements AutoCloseable
     /**
      * Context for cluster session and connection.
      */
-    public static class Context implements Cloneable
+    public static final class Context implements Cloneable
     {
         /**
          * Using an integer because there is no support for boolean. 1 is concluded, 0 is not concluded.
@@ -960,7 +960,7 @@ public final class AeronCluster implements AutoCloseable
         private Aeron aeron;
         private CredentialsSupplier credentialsSupplier;
         private boolean ownsAeronClient = false;
-        private boolean isIngressExclusive = false;
+        private boolean isIngressExclusive = true;
         private ErrorHandler errorHandler = Aeron.Configuration.DEFAULT_ERROR_HANDLER;
         private boolean isDirectAssemblers = false;
         private EgressListener egressListener;
@@ -1090,7 +1090,8 @@ public final class AeronCluster implements AutoCloseable
          * Set the channel parameter for the ingress channel.
          * <p>
          * The endpoints representing members for use with unicast are substituted from {@link #ingressEndpoints()}
-         * for endpoints. A null value can be used when multicast where this contains the multicast endpoint.
+         * for endpoints. If this channel contains a multicast endpoint, then {@link #ingressEndpoints()} should
+         * be set to null.
          *
          * @param channel parameter for the ingress channel.
          * @return this for a fluent API.
@@ -1284,9 +1285,9 @@ public final class AeronCluster implements AutoCloseable
         }
 
         /**
-         * Is ingress to the cluster exclusively from a single thread to this client? Only set this if you are sure
-         * the client will not be used from another thread, e.g. a separate thread calling
-         * {@link AeronCluster#sendKeepAlive()} - which is a really bad design by the way!
+         * Is ingress to the cluster exclusively from a single thread to this client? The client should not be used
+         * from another thread, e.g. a separate thread calling {@link AeronCluster#sendKeepAlive()} - which is a really
+         * bad design by the way!
          *
          * @param isIngressExclusive true if ingress to the cluster is exclusively from a single thread for this client?
          * @return this for a fluent API.
@@ -1298,9 +1299,9 @@ public final class AeronCluster implements AutoCloseable
         }
 
         /**
-         * Is ingress to the cluster exclusively from a single thread to this client?
+         * Is ingress the {@link Publication} to the cluster used exclusively from a single thread to this client?
          *
-         * @return true if ingress to the cluster exclusively from a single thread to this client?
+         * @return true if the ingress {@link Publication} is to be used exclusively from a single thread?
          */
         public boolean isIngressExclusive()
         {
@@ -1449,7 +1450,7 @@ public final class AeronCluster implements AutoCloseable
      * it returns a non-null value with the new {@link AeronCluster} client. On error {@link #close()} should be called
      * to clean up allocated resources.
      */
-    public static class AsyncConnect implements AutoCloseable
+    public static final class AsyncConnect implements AutoCloseable
     {
         private final Subscription egressSubscription;
         private final long deadlineNs;
@@ -1555,16 +1556,16 @@ public final class AeronCluster implements AutoCloseable
 
         private void checkDeadline()
         {
-            if (Thread.interrupted())
-            {
-                LangUtil.rethrowUnchecked(new InterruptedException());
-            }
-
             if (deadlineNs - nanoClock.nanoTime() < 0)
             {
                 throw new TimeoutException(
-                    "connect timeout, step=" + step + " egress.isConnected=" + egressSubscription.isConnected(),
-                    AeronException.Category.ERROR);
+                    "connect timeout, step=" + step + " egress.isConnected=" + egressSubscription.isConnected() +
+                    " responseChannel=" + egressSubscription.tryResolveChannelEndpointPort());
+            }
+
+            if (Thread.currentThread().isInterrupted())
+            {
+                throw new AeronException("unexpected interrupt");
             }
         }
 
@@ -1590,26 +1591,24 @@ public final class AeronCluster implements AutoCloseable
         private void awaitPublicationConnected()
         {
             final String responseChannel = egressSubscription.tryResolveChannelEndpointPort();
-            if (null == responseChannel)
+            if (null != responseChannel)
             {
-                return;
-            }
-
-            if (null == ingressPublication)
-            {
-                for (final MemberIngress member : memberByIdMap.values())
+                if (null == ingressPublication)
                 {
-                    if (member.publication.isConnected())
+                    for (final MemberIngress member : memberByIdMap.values())
                     {
-                        ingressPublication = member.publication;
-                        prepareConnectRequest(responseChannel);
-                        return;
+                        if (member.publication.isConnected())
+                        {
+                            ingressPublication = member.publication;
+                            prepareConnectRequest(responseChannel);
+                            break;
+                        }
                     }
                 }
-            }
-            else if (ingressPublication.isConnected())
-            {
-                prepareConnectRequest(responseChannel);
+                else if (ingressPublication.isConnected())
+                {
+                    prepareConnectRequest(responseChannel);
+                }
             }
         }
 

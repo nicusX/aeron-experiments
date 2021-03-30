@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ public interface TestMediaDriver extends AutoCloseable
 
     static void notSupportedOnCMediaDriver(final String reason)
     {
-        assumeFalse(shouldRunCMediaDriver(), () -> "Functionality not support by C Media Driver: " + reason);
+        assumeFalse(shouldRunCMediaDriver(), () -> "not support by C Media Driver: " + reason);
     }
 
     static TestMediaDriver launch(final MediaDriver.Context context, final DriverOutputConsumer driverOutputConsumer)

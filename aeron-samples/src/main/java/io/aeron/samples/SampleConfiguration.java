@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -84,6 +84,11 @@ public class SampleConfiguration
         EXCLUSIVE_PUBLICATIONS = Boolean.getBoolean(EXCLUSIVE_PUBLICATIONS_PROP);
     }
 
+    /**
+     * Create a new {@link IdleStrategy} based on the {@link #IDLE_STRATEGY_NAME}.
+     *
+     * @return a new {@link IdleStrategy} based on the {@link #IDLE_STRATEGY_NAME}.
+     */
     public static IdleStrategy newIdleStrategy()
     {
         return Configuration.agentIdleStrategy(IDLE_STRATEGY_NAME, null);

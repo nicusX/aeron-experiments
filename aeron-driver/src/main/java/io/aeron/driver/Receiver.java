@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,7 +34,8 @@ import static io.aeron.driver.status.SystemCounterDescriptor.BYTES_RECEIVED;
 import static io.aeron.driver.status.SystemCounterDescriptor.RESOLUTION_CHANGES;
 
 /**
- * Receiver agent for JVM based media driver, uses an event loop with command buffer
+ * Agent that receives messages streams and rebuilds {@link PublicationImage}s, plus iterates over them sending status
+ * and control messages back to the {@link Sender}.
  */
 public final class Receiver implements Agent
 {
@@ -43,6 +44,7 @@ public final class Receiver implements Agent
     private final OneToOneConcurrentArrayQueue<Runnable> commandQueue;
     private final AtomicCounter totalBytesReceived;
     private final AtomicCounter resolutionChanges;
+    private final NanoClock nanoClock;
     private final CachedNanoClock cachedNanoClock;
     private PublicationImage[] publicationImages = EMPTY_IMAGES;
     private final ArrayList<PendingSetupMessageFromSource> pendingSetupMessages = new ArrayList<>();
@@ -56,44 +58,67 @@ public final class Receiver implements Agent
         commandQueue = ctx.receiverCommandQueue();
         totalBytesReceived = ctx.systemCounters().get(BYTES_RECEIVED);
         resolutionChanges = ctx.systemCounters().get(RESOLUTION_CHANGES);
-        cachedNanoClock = ctx.cachedNanoClock();
+        nanoClock = ctx.nanoClock();
+        cachedNanoClock = ctx.receiverCachedNanoClock();
         conductorProxy = ctx.driverConductorProxy();
         reResolutionCheckIntervalNs = ctx.reResolutionCheckIntervalNs();
-        reResolutionDeadlineNs = cachedNanoClock.nanoTime() + reResolutionCheckIntervalNs;
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    public void onStart()
+    {
+        final long nowNs = nanoClock.nanoTime();
+        cachedNanoClock.update(nowNs);
+        reResolutionDeadlineNs = nowNs + reResolutionCheckIntervalNs;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public void onClose()
     {
         dataTransportPoller.close();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String roleName()
     {
         return "receiver";
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int doWork()
     {
+        final long nowNs = nanoClock.nanoTime();
+        cachedNanoClock.update(nowNs);
+
         int workCount = commandQueue.drain(Runnable::run, Configuration.COMMAND_DRAIN_LIMIT);
+
         final int bytesReceived = dataTransportPoller.pollTransports();
         totalBytesReceived.getAndAddOrdered(bytesReceived);
-        final long nowNs = cachedNanoClock.nanoTime();
 
         final PublicationImage[] publicationImages = this.publicationImages;
         for (int lastIndex = publicationImages.length - 1, i = lastIndex; i >= 0; i--)
         {
             final PublicationImage image = publicationImages[i];
-            if (image.hasActivityAndNotEndOfStream(nowNs))
+            if (image.isConnected(nowNs))
             {
-                workCount += image.sendPendingStatusMessage();
+                workCount += image.sendPendingStatusMessage(nowNs);
                 workCount += image.processPendingLoss();
                 workCount += image.initiateAnyRttMeasurements(nowNs);
             }
             else
             {
-                image.removeFromDispatcher();
                 this.publicationImages = 1 == this.publicationImages.length ?
                     EMPTY_IMAGES : ArrayUtil.remove(this.publicationImages, i);
+                image.removeFromDispatcher();
+                image.receiverRelease();
             }
         }
 
@@ -125,28 +150,28 @@ public final class Receiver implements Agent
 
     void onAddSubscription(final ReceiveChannelEndpoint channelEndpoint, final int streamId)
     {
-        channelEndpoint.addSubscription(streamId);
+        channelEndpoint.dispatcher().addSubscription(streamId);
     }
 
     void onAddSubscription(final ReceiveChannelEndpoint channelEndpoint, final int streamId, final int sessionId)
     {
-        channelEndpoint.addSubscription(streamId, sessionId);
+        channelEndpoint.dispatcher().addSubscription(streamId, sessionId);
     }
 
     void onRemoveSubscription(final ReceiveChannelEndpoint channelEndpoint, final int streamId)
     {
-        channelEndpoint.removeSubscription(streamId);
+        channelEndpoint.dispatcher().removeSubscription(streamId);
     }
 
     void onRemoveSubscription(final ReceiveChannelEndpoint channelEndpoint, final int streamId, final int sessionId)
     {
-        channelEndpoint.removeSubscription(streamId, sessionId);
+        channelEndpoint.dispatcher().removeSubscription(streamId, sessionId);
     }
 
     void onNewPublicationImage(final ReceiveChannelEndpoint channelEndpoint, final PublicationImage image)
     {
         publicationImages = ArrayUtil.add(publicationImages, image);
-        channelEndpoint.addPublicationImage(image);
+        channelEndpoint.dispatcher().addPublicationImage(image);
     }
 
     void onRegisterReceiveChannelEndpoint(final ReceiveChannelEndpoint channelEndpoint)
@@ -189,7 +214,7 @@ public final class Receiver implements Agent
 
     void onRemoveCoolDown(final ReceiveChannelEndpoint channelEndpoint, final int sessionId, final int streamId)
     {
-        channelEndpoint.removeCoolDown(sessionId, streamId);
+        channelEndpoint.dispatcher().removeCoolDown(sessionId, streamId);
     }
 
     void onAddDestination(final ReceiveChannelEndpoint channelEndpoint, final ReceiveDestinationTransport transport)
@@ -242,8 +267,10 @@ public final class Receiver implements Agent
     {
         final int transportIndex = channelEndpoint.hasDestinationControl() ? channelEndpoint.destination(channel) : 0;
 
-        for (final PendingSetupMessageFromSource pending : pendingSetupMessages)
+        for (int i = 0, size = pendingSetupMessages.size(); i < size; i++)
         {
+            final PendingSetupMessageFromSource pending = pendingSetupMessages.get(i);
+
             if (pending.channelEndpoint() == channelEndpoint &&
                 pending.isPeriodic() &&
                 pending.transportIndex() == transportIndex)
@@ -258,7 +285,6 @@ public final class Receiver implements Agent
 
     private void checkPendingSetupMessages(final long nowNs)
     {
-        final ArrayList<PendingSetupMessageFromSource> pendingSetupMessages = this.pendingSetupMessages;
         for (int lastIndex = pendingSetupMessages.size() - 1, i = lastIndex; i >= 0; i--)
         {
             final PendingSetupMessageFromSource pending = pendingSetupMessages.get(i);

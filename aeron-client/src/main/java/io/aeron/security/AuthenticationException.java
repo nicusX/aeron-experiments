@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ import io.aeron.exceptions.AeronException;
 public class AuthenticationException extends AeronException
 {
     /**
-     * Default exception of {@link Category#ERROR}.
+     * Default exception of {@link io.aeron.exceptions.AeronException.Category#ERROR}.
      */
     public AuthenticationException()
     {
@@ -31,7 +31,7 @@ public class AuthenticationException extends AeronException
     }
 
     /**
-     * Authentication exception with provided message and {@link Category#ERROR}.
+     * Authentication exception with provided message and {@link io.aeron.exceptions.AeronException.Category#ERROR}.
      *
      * @param message to detail the exception.
      */
@@ -41,7 +41,7 @@ public class AuthenticationException extends AeronException
     }
 
     /**
-     * Authentication exception with provided cause and {@link Category#ERROR}.
+     * Authentication exception with provided cause and {@link io.aeron.exceptions.AeronException.Category#ERROR}.
      *
      * @param cause of the error.
      */
@@ -63,7 +63,8 @@ public class AuthenticationException extends AeronException
 
     /**
      * Constructs a new Authentication exception with the a detail message, cause, suppression enabled or disabled,
-     * and writable stack trace enabled or disabled, in the category {@link Category#ERROR}.
+     * and writable stack trace enabled or disabled, in the category
+     * {@link io.aeron.exceptions.AeronException.Category#ERROR}.
      *
      * @param message            providing detail on the error.
      * @param cause              of the error.

@@ -1,8 +1,6 @@
 Aeron
 =====
 
-[![Gitter](https://img.shields.io/gitter/room/gitterHQ/gitter.svg)](https://gitter.im/real-logic/Aeron?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) To chat with other Aeron users and contributors.
-
 [![GitHub](https://img.shields.io/github/license/real-logic/Aeron.svg)](https://github.com/real-logic/aeron/blob/master/LICENSE)
 [![Javadocs](https://www.javadoc.io/badge/io.aeron/aeron-all.svg)](https://www.javadoc.io/doc/io.aeron/aeron-all)
 
@@ -15,7 +13,9 @@ Efficient reliable UDP unicast, UDP multicast, and IPC message transport. Java a
 repository, and a [.NET client](https://github.com/AdaptiveConsulting/Aeron.NET) is available from a 3rd party. All
 three clients can exchange messages across machines, or on the same machine via IPC, very efficiently. Message streams
 can be recorded by the [Archive](https://github.com/real-logic/aeron/tree/master/aeron-archive) module to persistent
-storage for later, or real-time, replay.
+storage for later, or real-time, replay. Aeron [Cluster](https://github.com/real-logic/aeron/tree/master/aeron-cluster)
+provides support for fault-tolerant services as replicated state machines based on the
+[Raft](https://raft.github.io/) consensus algorithm.
 
 Performance is the key focus. A design goal for Aeron is to be the highest throughput with the lowest and most
 predictable latency of any messaging system. Aeron integrates with
@@ -143,35 +143,37 @@ Start up a media driver which will create the data and conductor directories. On
 `/dev/shm/aeron` or `/tmp/aeron`.
 
 ```shell
-    $ java -cp aeron-samples/build/libs/samples.jar io.aeron.driver.MediaDriver
+    $ java -cp aeron-all/build/libs/aeron-all-${VERSION}.jar io.aeron.driver.MediaDriver
 ```
 
 Alternatively, specify the data and conductor directories. The following example uses the shared memory 'directory' on
 Linux, but you could just as easily point to the regular filesystem.
 
 ```shell
-    $ java -cp aeron-samples/build/libs/samples.jar -Daeron.dir=/dev/shm/aeron io.aeron.driver.MediaDriver
+    $ java -cp aeron-all/build/libs/aeron-all-${VERSION}.jar -Daeron.dir=/dev/shm/aeron io.aeron.driver.MediaDriver
 ```
 
 You can run the `BasicSubscriber` from a command line. On Linux, this will be pointing to the `/dev/shm` shared memory
 directory, so be sure your `MediaDriver` is doing the same!
 
 ```shell
-    $ java -cp aeron-samples/build/libs/samples.jar io.aeron.samples.BasicSubscriber
+    $ java -cp aeron-all/build/libs/aeron-all-${VERSION}.jar io.aeron.samples.BasicSubscriber
 ```
     
 You can run the `BasicPublisher` from a command line. On Linux, this will be pointing to the `/dev/shm` shared memory
 directory, so be sure your `MediaDriver` is doing the same!
 
 ```shell
-    $ java -cp aeron-samples/build/libs/samples.jar io.aeron.samples.BasicPublisher
+    $ java -cp aeron-all/build/libs/aeron-all-${VERSION}.jar io.aeron.samples.BasicPublisher
 ```
 
 You can run the `AeronStat` utility to read system counters from a command line
     
 ```shell
-    $ java -cp aeron-samples/build/libs/samples.jar io.aeron.samples.AeronStat
+    $ java -cp aeron-all/build/libs/aeron-all-${VERSION}.jar io.aeron.samples.AeronStat
 ```
+
+For more samples and scripts to run them, see the [aeron-samples](https://github.com/real-logic/aeron/tree/master/aeron-samples) directory.
 
 Media Driver Packaging
 ----------------------
@@ -205,7 +207,7 @@ Troubleshooting
 
 License (See LICENSE file for full license)
 -------------------------------------------
-Copyright 2014-2020 Real Logic Limited
+Copyright 2014-2021 Real Logic Limited.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

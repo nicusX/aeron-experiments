@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,8 +25,16 @@ import java.nio.channels.SelectionKey;
  */
 public abstract class UdpTransportPoller extends TransportPoller
 {
+    /**
+     * {@link ErrorHandler} which can be used to log errors and continue.
+     */
     protected final ErrorHandler errorHandler;
 
+    /**
+     * Construct a new {@link TransportPoller} with an {@link ErrorHandler} for logging.
+     *
+     * @param errorHandler which can be used to log errors and continue.
+     */
     public UdpTransportPoller(final ErrorHandler errorHandler)
     {
         this.errorHandler = errorHandler;
@@ -42,8 +50,8 @@ public abstract class UdpTransportPoller extends TransportPoller
     /**
      * Register channel for read.
      *
-     * @param transport to associate with read
-     * @return SelectionKey for registration for cancel
+     * @param transport to associate with read.
+     * @return {@link SelectionKey} for registration to cancel.
      */
     public abstract SelectionKey registerForRead(UdpChannelTransport transport);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import org.agrona.DirectBuffer;
 /**
  * Encapsulate the polling, decoding, and dispatching of recording events.
  */
-public class RecordingEventsAdapter implements FragmentHandler
+public final class RecordingEventsAdapter implements FragmentHandler
 {
     private final MessageHeaderDecoder messageHeaderDecoder = new MessageHeaderDecoder();
     private final RecordingStartedDecoder recordingStartedDecoder = new RecordingStartedDecoder();
@@ -63,6 +63,9 @@ public class RecordingEventsAdapter implements FragmentHandler
         return subscription.poll(this, fragmentLimit);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
         messageHeaderDecoder.wrap(buffer, offset);

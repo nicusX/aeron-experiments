@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ##
-## Copyright 2014-2020 Real Logic Limited.
+## Copyright 2014-2021 Real Logic Limited.
 ##
 ## Licensed under the Apache License, Version 2.0 (the "License");
 ## you may not use this file except in compliance with the License.
@@ -27,10 +27,10 @@ function startNode() {
         -XX:+TrustFinalNonStaticFields \
         -XX:+UnlockDiagnosticVMOptions \
         -XX:GuaranteedSafepointInterval=300000 \
-        -XX:+UseParallelOldGC \
-        -Daeron.cluster.tutorial.customerId="$1" \
-        -Daeron.cluster.tutorial.numOfBids="$2" \
-        -Daeron.cluster.tutorial.bidIntervalMs="$3" \
+        -XX:+UseParallelGC \
+        -Daeron.cluster.tutorial.customerId="${1}" \
+        -Daeron.cluster.tutorial.numOfBids="${2}" \
+        -Daeron.cluster.tutorial.bidIntervalMs="${3}" \
         ${JVM_OPTS} ${ADD_OPENS} \
         io.aeron.samples.cluster.tutorial.BasicAuctionClusterClient
 }

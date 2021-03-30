@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Ltd.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,12 +22,16 @@ import io.aeron.exceptions.AeronException;
 import io.aeron.exceptions.RegistrationException;
 import io.aeron.exceptions.TimeoutException;
 import org.agrona.LangUtil;
+import org.agrona.SystemUtil;
 import org.agrona.concurrent.IdleStrategy;
 import org.agrona.concurrent.SleepingMillisIdleStrategy;
 import org.agrona.concurrent.YieldingIdleStrategy;
 import org.agrona.concurrent.status.AtomicCounter;
 import org.agrona.concurrent.status.CountersReader;
 
+import javax.management.*;
+import java.lang.management.ManagementFactory;
+import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntConsumer;
@@ -36,9 +40,34 @@ import java.util.function.Supplier;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.doAnswer;
 
+/**
+ * Utilities to help with writing tests.
+ */
 public class Tests
 {
     public static final IdleStrategy SLEEP_1_MS = new SleepingMillisIdleStrategy(1);
+    private static final String LOGGING_MBEAN_NAME = "io.aeron:type=logging";
+
+    /**
+     * Set a private field in a class for testing.
+     *
+     * @param instance  of the object to set the field value.
+     * @param fieldName to be set.
+     * @param value     to be set on the field.
+     */
+    public static void setField(final Object instance, final String fieldName, final Object value)
+    {
+        try
+        {
+            final Field field = instance.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(instance, value);
+        }
+        catch (final Throwable t)
+        {
+            LangUtil.rethrowUnchecked(t);
+        }
+    }
 
     /**
      * Check if the interrupt flag has been set on the current thread and fail the test if it has.
@@ -48,7 +77,7 @@ public class Tests
      */
     public static void checkInterruptStatus()
     {
-        if (Thread.interrupted())
+        if (Thread.currentThread().isInterrupted())
         {
             unexpectedInterruptStackTrace(null);
             fail("unexpected interrupt");
@@ -65,7 +94,7 @@ public class Tests
      */
     public static void checkInterruptStatus(final Supplier<String> messageSupplier)
     {
-        if (Thread.interrupted())
+        if (Thread.currentThread().isInterrupted())
         {
             final String message = messageSupplier.get();
             unexpectedInterruptStackTrace(message);
@@ -85,7 +114,7 @@ public class Tests
      */
     public static void checkInterruptStatus(final String format, final Object... args)
     {
-        if (Thread.interrupted())
+        if (Thread.currentThread().isInterrupted())
         {
             final String message = String.format(format, args);
             unexpectedInterruptStackTrace(message);
@@ -95,7 +124,7 @@ public class Tests
 
     public static void checkInterruptStatus(final String message)
     {
-        if (Thread.interrupted())
+        if (Thread.currentThread().isInterrupted())
         {
             unexpectedInterruptStackTrace(message);
             fail("unexpected interrupt - " + message);
@@ -112,15 +141,27 @@ public class Tests
             sb.append(" - ").append(message);
         }
 
+        appendStackTrace(sb).append('\n');
+
+        System.out.println(sb.toString());
+        System.out.println(SystemUtil.threadDump());
+    }
+
+    public static StringBuilder appendStackTrace(final StringBuilder sb)
+    {
+        return appendStackTrace(sb, Thread.currentThread().getStackTrace());
+    }
+
+    public static StringBuilder appendStackTrace(final StringBuilder sb, final StackTraceElement[] stackTraceElements)
+    {
         sb.append(System.lineSeparator());
 
-        final StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
         for (int i = 1, length = stackTraceElements.length; i < length; i++)
         {
             sb.append(stackTraceElements[i]).append(System.lineSeparator());
         }
 
-        System.out.println(sb.toString());
+        return sb;
     }
 
     /**
@@ -307,7 +348,7 @@ public class Tests
         while ((counterValue = counter.get()) < value)
         {
             Thread.yield();
-            if (Thread.interrupted())
+            if (Thread.currentThread().isInterrupted())
             {
                 unexpectedInterruptStackTrace("awaiting=" + value + " counter=" + counterValue);
                 fail("unexpected interrupt");
@@ -321,7 +362,7 @@ public class Tests
         while ((counterValue = counter.get()) < value)
         {
             Thread.yield();
-            if (Thread.interrupted())
+            if (Thread.currentThread().isInterrupted())
             {
                 unexpectedInterruptStackTrace("awaiting=" + value + " counter=" + counterValue);
                 fail("unexpected interrupt");
@@ -340,10 +381,7 @@ public class Tests
     }
 
     public static void awaitCounterDelta(
-        final CountersReader reader,
-        final int counterId,
-        final long initialValue,
-        final long delta)
+        final CountersReader reader, final int counterId, final long initialValue, final long delta)
     {
         final long expectedValue = initialValue + delta;
         final Supplier<String> counterMessage = () ->
@@ -412,5 +450,72 @@ public class Tests
         }
 
         return builder.toString();
+    }
+
+    public static void startLogCollecting()
+    {
+        try
+        {
+            final MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+            final ObjectName loggingName = new ObjectName(LOGGING_MBEAN_NAME);
+
+            try
+            {
+                mBeanServer.setAttribute(loggingName, new Attribute("Collecting", true));
+            }
+            catch (final InstanceNotFoundException ignore)
+            {
+                // It must not have been set up for the test. Expected in many cases.
+            }
+        }
+        catch (final Exception ex)
+        {
+            LangUtil.rethrowUnchecked(ex);
+        }
+    }
+
+    public static void resetLogCollecting()
+    {
+        try
+        {
+            final MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+            final ObjectName loggingName = new ObjectName(LOGGING_MBEAN_NAME);
+
+            try
+            {
+                mBeanServer.invoke(loggingName, "reset", new Object[0], new String[0]);
+            }
+            catch (final InstanceNotFoundException ignore)
+            {
+                // It must not have been set up for the test. Expected in many cases.
+            }
+        }
+        catch (final Exception ex)
+        {
+            LangUtil.rethrowUnchecked(ex);
+        }
+    }
+
+    public static void dumpCollectedLogs(final String filename)
+    {
+        try
+        {
+            final MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+            final ObjectName loggingName = new ObjectName(LOGGING_MBEAN_NAME);
+
+            try
+            {
+                mBeanServer.invoke(
+                    loggingName, "writeToFile", new Object[]{ filename }, new String[]{ "java.lang.String" });
+            }
+            catch (final InstanceNotFoundException ignore)
+            {
+                // It must not have been set up for the test. Expected in many cases.
+            }
+        }
+        catch (final Exception ex)
+        {
+            LangUtil.rethrowUnchecked(ex);
+        }
     }
 }

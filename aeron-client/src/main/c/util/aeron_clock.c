@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -126,6 +126,16 @@ int64_t aeron_epoch_clock()
 void aeron_clock_update_cached_time(aeron_clock_cache_t *cached_clock, int64_t epoch_time, int64_t nano_time)
 {
     AERON_PUT_ORDERED(cached_clock->cached_epoch_time, epoch_time);
+    AERON_PUT_ORDERED(cached_clock->cached_nano_time, nano_time);
+}
+
+void aeron_clock_update_cached_epoch_time(aeron_clock_cache_t *cached_clock, int64_t epoch_time)
+{
+    AERON_PUT_ORDERED(cached_clock->cached_epoch_time, epoch_time);
+}
+
+void aeron_clock_update_cached_nano_time(aeron_clock_cache_t *cached_clock, int64_t nano_time)
+{
     AERON_PUT_ORDERED(cached_clock->cached_nano_time, nano_time);
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,12 +31,12 @@ import static java.util.Collections.sort;
 /**
  * Collection of network specific utility functions.
  */
-public class NetworkUtil
+public final class NetworkUtil
 {
     /**
      * Search for a list of network interfaces that match the specified address and subnet prefix.
      * The results will be ordered by the length of the subnet prefix
-     * ({@link InterfaceAddress#getNetworkPrefixLength()}).  If no results match, then the collection
+     * ({@link InterfaceAddress#getNetworkPrefixLength()}). If no results match, then the collection
      * will be empty.
      *
      * @param address      to search for on the {@link NetworkInterface}s.

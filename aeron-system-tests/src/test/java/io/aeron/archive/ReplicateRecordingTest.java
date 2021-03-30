@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,6 +44,7 @@ import java.util.concurrent.TimeUnit;
 import static io.aeron.Aeron.NULL_VALUE;
 import static io.aeron.CommonContext.generateRandomDirName;
 import static io.aeron.archive.ArchiveSystemTests.*;
+import static io.aeron.archive.client.AeronArchive.NULL_POSITION;
 import static io.aeron.archive.codecs.SourceLocation.LOCAL;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -351,6 +352,61 @@ public class ReplicateRecordingTest
             dstAeronArchive.stopReplication(replicationId);
 
             assertEquals(RecordingSignal.STOP, awaitSignal(signalRef, adapter));
+        }
+
+        srcAeronArchive.stopRecording(subscriptionId);
+    }
+
+    @Test
+    public void shouldReplicateLiveRecordingAndStopAtSpecifiedPosition()
+    {
+        final String messagePrefix = "Message-Prefix-";
+        final int messageCount = 10;
+        final long srcRecordingId;
+
+        final long subscriptionId = srcAeronArchive.startRecording(LIVE_CHANNEL, LIVE_STREAM_ID, LOCAL);
+
+        try (Publication publication = srcAeron.addPublication(LIVE_CHANNEL, LIVE_STREAM_ID))
+        {
+            final CountersReader srcCounters = srcAeron.countersReader();
+            final int counterId = awaitRecordingCounterId(srcCounters, publication.sessionId());
+            srcRecordingId = RecordingPos.getRecordingId(srcCounters, counterId);
+
+            offer(publication, messageCount, messagePrefix);
+            final long firstPosition = publication.position();
+            awaitPosition(srcCounters, counterId, firstPosition);
+
+            offer(publication, messageCount, messagePrefix);
+            awaitPosition(srcCounters, counterId, publication.position());
+
+            final MutableLong dstRecordingId = new MutableLong();
+            final MutableReference<RecordingSignal> signalRef = new MutableReference<>();
+            final RecordingSignalAdapter adapter = newRecordingSignalAdapter(signalRef, dstRecordingId);
+
+            dstAeronArchive.replicate(
+                srcRecordingId,
+                NULL_VALUE,
+                firstPosition,
+                SRC_CONTROL_STREAM_ID,
+                SRC_CONTROL_REQUEST_CHANNEL,
+                null,
+                null);
+
+            assertEquals(RecordingSignal.REPLICATE, awaitSignal(signalRef, adapter));
+            assertEquals(RecordingSignal.EXTEND, awaitSignal(signalRef, adapter));
+            assertEquals(RecordingSignal.STOP, awaitSignal(signalRef, adapter));
+
+            offer(publication, messageCount, messagePrefix);
+            final int srcCounterId = RecordingPos.findCounterIdByRecording(srcCounters, srcRecordingId);
+            awaitPosition(srcCounters, srcCounterId, publication.position());
+
+            assertTrue(firstPosition < publication.position());
+            long dstStopPosition;
+            while (NULL_POSITION == (dstStopPosition = dstAeronArchive.getStopPosition(dstRecordingId.get())))
+            {
+                Tests.yield();
+            }
+            assertEquals(firstPosition, dstStopPosition);
         }
 
         srcAeronArchive.stopRecording(subscriptionId);

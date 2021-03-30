@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,6 +38,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.io.File;
 import java.nio.file.Paths;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import static io.aeron.archive.ArchiveSystemTests.*;
@@ -63,37 +64,31 @@ public class ReplayMergeTest
     private static final int SUBSEQUENT_MESSAGE_COUNT = MIN_MESSAGES_PER_TERM * 3;
     private static final int TOTAL_MESSAGE_COUNT = INITIAL_MESSAGE_COUNT + SUBSEQUENT_MESSAGE_COUNT;
 
-    private final ChannelUriStringBuilder publicationChannel = new ChannelUriStringBuilder()
+    private final String publicationChannel = new ChannelUriStringBuilder()
         .media(CommonContext.UDP_MEDIA)
         .tags("1," + PUBLICATION_TAG)
         .controlEndpoint(CONTROL_ENDPOINT)
         .controlMode(CommonContext.MDC_CONTROL_MODE_DYNAMIC)
         .termLength(TERM_LENGTH)
-        .taggedFlowControl(GROUP_TAG, 1, "5s");
+        .taggedFlowControl(GROUP_TAG, 1, "5s")
+        .build();
 
-    private final ChannelUriStringBuilder recordingChannel = new ChannelUriStringBuilder()
-        .media(CommonContext.UDP_MEDIA)
-        .endpoint(RECORDING_ENDPOINT)
-        .controlEndpoint(CONTROL_ENDPOINT)
-        .groupTag(GROUP_TAG);
-
-    private final ChannelUriStringBuilder subscriptionChannel = new ChannelUriStringBuilder()
-        .media(CommonContext.UDP_MEDIA)
-        .controlMode(CommonContext.MDC_CONTROL_MODE_MANUAL);
-
-    private final ChannelUriStringBuilder liveDestination = new ChannelUriStringBuilder()
+    private final String liveDestination = new ChannelUriStringBuilder()
         .media(CommonContext.UDP_MEDIA)
         .endpoint(LIVE_ENDPOINT)
-        .controlEndpoint(CONTROL_ENDPOINT);
+        .controlEndpoint(CONTROL_ENDPOINT)
+        .build();
 
-    private final ChannelUriStringBuilder replayDestination = new ChannelUriStringBuilder()
+    private final String replayDestination = new ChannelUriStringBuilder()
         .media(CommonContext.UDP_MEDIA)
-        .endpoint(REPLAY_ENDPOINT);
+        .endpoint(REPLAY_ENDPOINT)
+        .build();
 
-    private final ChannelUriStringBuilder replayChannel = new ChannelUriStringBuilder()
+    private final String replayChannel = new ChannelUriStringBuilder()
         .media(CommonContext.UDP_MEDIA)
         .isSessionIdTagged(true)
-        .sessionId(PUBLICATION_TAG);
+        .sessionId(PUBLICATION_TAG)
+        .build();
 
     private final ExpandableArrayBuffer buffer = new ExpandableArrayBuffer();
     private final MutableLong receivedMessageCount = new MutableLong();
@@ -133,6 +128,7 @@ public class ReplayMergeTest
                 .threadingMode(ThreadingMode.SHARED)
                 .errorHandler(Tests::onError)
                 .spiesSimulateConnection(false)
+                .imageLivenessTimeoutNs(TimeUnit.SECONDS.toNanos(10))
                 .dirDeleteOnStart(true),
             testWatcher);
 
@@ -153,6 +149,9 @@ public class ReplayMergeTest
         aeronArchive = AeronArchive.connect(
             new AeronArchive.Context()
                 .errorHandler(Tests::onError)
+                .controlRequestChannel(archive.context().localControlChannel())
+                .controlRequestStreamId(archive.context().localControlStreamId())
+                .controlResponseChannel(archive.context().localControlChannel())
                 .aeron(aeron));
 
         dataCollector.add(Paths.get(mediaDriverContext.aeronDirectoryName()));
@@ -162,11 +161,11 @@ public class ReplayMergeTest
     @AfterEach
     public void after()
     {
-        if (receivedMessageCount.get() != MIN_MESSAGES_PER_TERM * 6)
+        if (receivedMessageCount.get() != MIN_MESSAGES_PER_TERM * 6L)
         {
             System.out.println(
                 "received " + receivedMessageCount.get() + ", sent " + messagesPublished +
-                ", total " + (MIN_MESSAGES_PER_TERM * 6));
+                ", total " + (MIN_MESSAGES_PER_TERM * 6L));
         }
 
         CloseHelper.closeAll(aeronArchive, aeron, archive, driver);
@@ -179,11 +178,21 @@ public class ReplayMergeTest
     @Timeout(30)
     public void shouldMergeFromReplayToLive(final TestInfo testInfo)
     {
-        try (Publication publication = aeron.addPublication(publicationChannel.build(), STREAM_ID))
+        try (Publication publication = aeron.addPublication(publicationChannel, STREAM_ID))
         {
-            final int sessionId = publication.sessionId();
-            final String recordingChannel = this.recordingChannel.sessionId(sessionId).build();
-            final String subscriptionChannel = this.subscriptionChannel.sessionId(sessionId).build();
+            final String recordingChannel = new ChannelUriStringBuilder()
+                .media(CommonContext.UDP_MEDIA)
+                .endpoint(RECORDING_ENDPOINT)
+                .controlEndpoint(CONTROL_ENDPOINT)
+                .sessionId(publication.sessionId())
+                .groupTag(GROUP_TAG)
+                .build();
+
+            final String subscriptionChannel = new ChannelUriStringBuilder()
+                .media(CommonContext.UDP_MEDIA)
+                .controlMode(CommonContext.MDC_CONTROL_MODE_MANUAL)
+                .sessionId(publication.sessionId())
+                .build();
 
             aeronArchive.startRecording(recordingChannel, STREAM_ID, REMOTE, true);
             final CountersReader counters = aeron.countersReader();
@@ -192,10 +201,13 @@ public class ReplayMergeTest
 
             publishMessages(publication);
             awaitPosition(counters, recordingCounterId, publication.position());
+            int attempt = 1;
 
-            while (!attemptReplayMerge(recordingId, recordingCounterId, counters, publication, subscriptionChannel))
+            while (!attemptReplayMerge(
+                attempt, recordingId, recordingCounterId, counters, publication, subscriptionChannel))
             {
                 Tests.yield();
+                attempt++;
             }
 
             assertEquals(TOTAL_MESSAGE_COUNT, receivedMessageCount.get());
@@ -209,6 +221,7 @@ public class ReplayMergeTest
     }
 
     private boolean attemptReplayMerge(
+        final int attempt,
         final long recordingId,
         final int recordingCounterId,
         final CountersReader counters,
@@ -219,34 +232,45 @@ public class ReplayMergeTest
             ReplayMerge replayMerge = new ReplayMerge(
                 subscription,
                 aeronArchive,
-                replayChannel.build(),
-                replayDestination.build(),
-                liveDestination.build(),
+                replayChannel,
+                replayDestination,
+                liveDestination,
                 recordingId,
                 receivedPosition.get()))
         {
-            final MutableLong offerPosition = new MutableLong();
-            final Supplier<String> msgOne = () -> String.format("replay did not merge: %s", replayMerge);
+            final Supplier<String> msgOne = () -> String.format(
+                "replay did not merge: attempt=%d %s", attempt, replayMerge);
             final Supplier<String> msgTwo = () -> String.format(
-                "receivedMessageCount=%d < totalMessageCount=%d: replayMerge=%s",
-                receivedMessageCount.get(), TOTAL_MESSAGE_COUNT, replayMerge);
+                "receivedMessageCount=%d < totalMessageCount=%d: attempt=%d %s",
+                receivedMessageCount.get(), TOTAL_MESSAGE_COUNT, attempt, replayMerge);
 
             for (int i = messagesPublished; i < TOTAL_MESSAGE_COUNT; i++)
             {
-                while ((offerPosition.value = offerMessage(publication, i)) <= 0)
+                while (true)
                 {
-                    if (Publication.BACK_PRESSURED == offerPosition.get())
+                    final long offerResult = offerMessage(publication, i);
+                    if (offerResult > 0)
+                    {
+                        messagesPublished++;
+                        break;
+                    }
+                    else if (Publication.BACK_PRESSURED == offerResult)
                     {
                         awaitRecordingPositionChange(
-                            replayMerge, counters, recordingCounterId, recordingId, publication);
+                            attempt, replayMerge, counters, recordingCounterId, recordingId, publication);
+
                         if (0 == replayMerge.poll(fragmentHandler, FRAGMENT_LIMIT) && replayMerge.hasFailed())
                         {
                             return false;
                         }
                     }
-                    else if (Publication.NOT_CONNECTED == offerPosition.get())
+                    else if (Publication.NOT_CONNECTED == offerResult)
                     {
                         throw new IllegalStateException("publication is not connected");
+                    }
+                    else if (Publication.CLOSED == offerResult)
+                    {
+                        throw new IllegalStateException("publication is closed");
                     }
                 }
 
@@ -290,6 +314,7 @@ public class ReplayMergeTest
     }
 
     static void awaitRecordingPositionChange(
+        final int attempt,
         final ReplayMerge replayMerge,
         final CountersReader counters,
         final int counterId,
@@ -300,10 +325,11 @@ public class ReplayMergeTest
         final long initialTimestampNs = System.nanoTime();
         final long currentPosition = counters.getCounterValue(counterId);
         final Supplier<String> msg = () -> String.format(
-            "publicationPosition=%d, recordingPosition=%d, timeSinceLastChangeMs=%d, replayMerge=%s",
+            "publicationPosition=%d recordingPosition=%d timeSinceLastChangeMs=%d attempt=%d %s",
             position,
             currentPosition,
             (System.nanoTime() - initialTimestampNs) / 1_000_000,
+            attempt,
             replayMerge);
 
         do
@@ -320,29 +346,25 @@ public class ReplayMergeTest
 
     private long offerMessage(final Publication publication, final int index)
     {
-        final int length = buffer.putStringWithoutLengthAscii(0, MESSAGE_PREFIX + index);
-        final long offerResult = publication.offer(buffer, 0, length);
+        int length = buffer.putStringWithoutLengthAscii(0, MESSAGE_PREFIX);
+        length += buffer.putIntAscii(length, index);
 
-        if (offerResult > 0)
-        {
-            messagesPublished++;
-        }
-
-        return offerResult;
+        return publication.offer(buffer, 0, length);
     }
 
     private void publishMessages(final Publication publication)
     {
         for (int i = 0; i < INITIAL_MESSAGE_COUNT; i++)
         {
-            final int length = buffer.putStringWithoutLengthAscii(0, MESSAGE_PREFIX + i);
+            int length = buffer.putStringWithoutLengthAscii(0, MESSAGE_PREFIX);
+            length += buffer.putIntAscii(length, i);
 
             while (publication.offer(buffer, 0, length) <= 0)
             {
                 Tests.yield();
             }
-
-            messagesPublished++;
         }
+
+        messagesPublished = INITIAL_MESSAGE_COUNT;
     }
 }

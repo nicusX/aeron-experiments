@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,7 +59,7 @@ aeron_udp_channel_transport_bindings_t *aeron_udp_channel_transport_bindings_loa
 
     if (NULL == bindings_name)
     {
-        aeron_set_err(EINVAL, "%s", "invalid UDP channel transport bindings name");
+        AERON_SET_ERR(EINVAL, "%s", "invalid UDP channel transport bindings name");
         return NULL;
     }
 
@@ -71,7 +71,7 @@ aeron_udp_channel_transport_bindings_t *aeron_udp_channel_transport_bindings_loa
     {
         if ((bindings = (aeron_udp_channel_transport_bindings_t *)aeron_dlsym(RTLD_DEFAULT, bindings_name)) == NULL)
         {
-            aeron_set_err(
+            AERON_SET_ERR(
                 EINVAL, "could not find UDP channel transport bindings %s: dlsym - %s", bindings_name, aeron_dlerror());
             return NULL;
         }
@@ -105,8 +105,9 @@ static aeron_udp_channel_interceptor_bindings_load_func_t *aeron_udp_channel_int
         if ((load_interceptor = (aeron_udp_channel_interceptor_bindings_load_func_t *)aeron_dlsym(
             RTLD_DEFAULT, interceptor_name)) == NULL)
         {
-            aeron_set_err(
-                EINVAL, "could not find interceptor bindings %s: dlsym - %s", interceptor_name,
+            AERON_SET_ERR(EINVAL,
+                "could not find interceptor bindings %s: dlsym - %s",
+                interceptor_name,
                 aeron_dlerror());
             return NULL;
         }
@@ -132,9 +133,11 @@ aeron_udp_channel_interceptor_bindings_t *aeron_udp_channel_interceptor_bindings
 
     if (interceptors_length >= (size_t)AERON_MAX_INTERCEPTORS_LEN)
     {
-        aeron_set_err(
-            EINVAL, "Interceptors list too long, must have: %" PRIu32 " < %d",
-            (uint32_t)interceptors_length, AERON_MAX_INTERCEPTORS_LEN);
+        AERON_SET_ERR(
+            EINVAL,
+            "Interceptors list too long, must have: %" PRIu64 " < %d",
+            (uint64_t)interceptors_length,
+            AERON_MAX_INTERCEPTORS_LEN);
         return NULL;
     }
 
@@ -145,13 +148,13 @@ aeron_udp_channel_interceptor_bindings_t *aeron_udp_channel_interceptor_bindings
 
     if (-ERANGE == num_interceptors)
     {
-        aeron_set_err(
+        AERON_SET_ERR(
             EINVAL, "Too many interceptors defined, limit %d: %s", AERON_MAX_INTERCEPTOR_NAMES, interceptors);
         return NULL;
     }
     else if (num_interceptors < 0)
     {
-        aeron_set_err(EINVAL, "Failed to parse interceptors: %s", interceptors != NULL ? interceptors : "(null)");
+        AERON_SET_ERR(EINVAL, "Failed to parse interceptors: %s", interceptors != NULL ? interceptors : "(null)");
         return NULL;
     }
 
@@ -172,7 +175,7 @@ aeron_udp_channel_interceptor_bindings_t *aeron_udp_channel_interceptor_bindings
         current_bindings = interceptor_load_func(current_bindings);
         if (NULL == current_bindings)
         {
-            aeron_set_err(EINVAL, "Failed to load interceptor bindings: %s", interceptor_name);
+            AERON_APPEND_ERR("Failed to load interceptor bindings: %s", interceptor_name);
             return NULL;
         }
 
@@ -201,7 +204,7 @@ int aeron_udp_channel_data_paths_init(
     data_paths->outgoing_interceptors = NULL;
     data_paths->incoming_interceptors = NULL;
 
-    /* if no interceptors, then use sendgmmsg_func from transport bindings. */
+    /* if no interceptors, then use sendmmsg_func from transport bindings. */
     data_paths->sendmmsg_func = media_bindings->sendmmsg_func;
     data_paths->sendmsg_func = media_bindings->sendmsg_func;
     /* if no interceptors, then use passed in recv_func */
@@ -221,7 +224,7 @@ int aeron_udp_channel_data_paths_init(
 
             if (aeron_alloc((void **)&interceptor, sizeof(aeron_udp_channel_outgoing_interceptor_t)) < 0)
             {
-                aeron_set_err(ENOMEM, "could not allocate %s:%d", __FILE__, __LINE__);
+                AERON_APPEND_ERR("%s", "Outgoing interceptor for UDP transport bindings");
                 return -1;
             }
 
@@ -251,10 +254,9 @@ int aeron_udp_channel_data_paths_init(
             last_outgoing_interceptor = interceptor;
         }
 
-        if (aeron_alloc(
-            (void **)&outgoing_transport_interceptor, sizeof(aeron_udp_channel_outgoing_interceptor_t)) < 0)
+        if (aeron_alloc((void **)&outgoing_transport_interceptor, sizeof(aeron_udp_channel_outgoing_interceptor_t)) < 0)
         {
-            aeron_set_err(ENOMEM, "could not allocate %s:%d", __FILE__, __LINE__);
+            AERON_APPEND_ERR("%s", "Last outgoing interceptor for UDP transport bindings");
             return -1;
         }
 
@@ -267,7 +269,7 @@ int aeron_udp_channel_data_paths_init(
 #pragma GCC diagnostic pop
 #endif
 
-        /* last interecptor calls sendmmsg_func/sendmsg_func from transport bindings */
+        /* last interceptor calls sendmmsg_func/sendmsg_func from transport bindings */
         outgoing_transport_interceptor->outgoing_mmsg_func = aeron_udp_channel_outgoing_interceptor_mmsg_to_transport;
         outgoing_transport_interceptor->outgoing_msg_func = aeron_udp_channel_outgoing_interceptor_msg_to_transport;
         outgoing_transport_interceptor->close_func = NULL;
@@ -292,7 +294,7 @@ int aeron_udp_channel_data_paths_init(
 
             if (aeron_alloc((void **)&interceptor, sizeof(aeron_udp_channel_incoming_interceptor_t)) < 0)
             {
-                aeron_set_err(ENOMEM, "could not allocate %s:%d", __FILE__, __LINE__);
+                AERON_APPEND_ERR("%s", "Incoming interceptor for UDP transport bindings");
                 return -1;
             }
 
@@ -324,7 +326,7 @@ int aeron_udp_channel_data_paths_init(
         if (aeron_alloc(
             (void **)&incoming_transport_interceptor, sizeof(aeron_udp_channel_incoming_interceptor_t)) < 0)
         {
-            aeron_set_err(ENOMEM, "could not allocate %s:%d", __FILE__, __LINE__);
+            AERON_APPEND_ERR("%s", "Last incoming interceptor for UDP transport bindings");
             return -1;
         }
 

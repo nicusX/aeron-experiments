@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,6 +42,7 @@ import org.agrona.concurrent.status.CountersReader;
 import java.io.File;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.aeron.Aeron.NULL_VALUE;
 import static io.aeron.archive.client.AeronArchive.NULL_POSITION;
@@ -60,16 +61,17 @@ public class TestNode implements AutoCloseable
     TestNode(final Context context, final DataCollector dataCollector)
     {
         mediaDriver = TestMediaDriver.launch(context.mediaDriverContext, null);
+
         clusteredArchive = ClusteredArchive.launch(
             mediaDriver.aeronDirectoryName(),
             context.archiveContext,
-            context.consensusModuleContext.terminationHook(ClusterTests.dynamicTerminationHook(
-                context.terminationExpected, context.memberWasTerminated)));
+            context.consensusModuleContext.terminationHook(ClusterTests.terminationHook(
+                context.isTerminationExpected, context.hasMemberTerminated)));
 
         container = ClusteredServiceContainer.launch(
             context.serviceContainerContext
-                .terminationHook(ClusterTests.dynamicTerminationHook(
-                    context.terminationExpected, context.serviceWasTerminated)));
+                .terminationHook(ClusterTests.terminationHook(
+                    context.isTerminationExpected, context.hasServiceTerminated)));
 
         service = context.service;
         this.context = context;
@@ -78,6 +80,16 @@ public class TestNode implements AutoCloseable
         dataCollector.add(clusteredArchive.consensusModule().context().clusterDir().toPath());
         dataCollector.add(clusteredArchive.archive().context().archiveDir().toPath());
         dataCollector.add(mediaDriver.context().aeronDirectory().toPath());
+    }
+
+    public TestMediaDriver mediaDriver()
+    {
+        return mediaDriver;
+    }
+
+    public Archive archive()
+    {
+        return clusteredArchive.archive();
     }
 
     public ConsensusModule consensusModule()
@@ -150,7 +162,7 @@ public class TestNode implements AutoCloseable
         }
         catch (final Throwable t)
         {
-            if (error == null)
+            if (null == error)
             {
                 error = t;
             }
@@ -173,42 +185,41 @@ public class TestNode implements AutoCloseable
 
     public Cluster.Role role()
     {
-        final ConsensusModule.Context context = clusteredArchive.consensusModule().context();
-        if (context.aeron().isClosed())
+        final Counter counter = clusteredArchive.consensusModule().context().clusterNodeRoleCounter();
+        if (counter.isClosed())
         {
             return Cluster.Role.FOLLOWER;
         }
 
-        return Cluster.Role.get(context.clusterNodeRoleCounter());
+        return Cluster.Role.get(counter);
     }
 
     ElectionState electionState()
     {
-        final ConsensusModule.Context context = clusteredArchive.consensusModule().context();
-        if (context.aeron().isClosed())
+        final Counter counter = clusteredArchive.consensusModule().context().electionStateCounter();
+        if (counter.isClosed())
         {
             return ElectionState.CLOSED;
         }
 
-        return ElectionState.get(context.electionStateCounter());
+        return ElectionState.get(counter);
     }
 
     ConsensusModule.State moduleState()
     {
-        final ConsensusModule.Context context = clusteredArchive.consensusModule().context();
-        if (context.aeron().isClosed())
+        final Counter counter = clusteredArchive.consensusModule().context().moduleStateCounter();
+        if (counter.isClosed())
         {
             return ConsensusModule.State.CLOSED;
         }
 
-        return ConsensusModule.State.get(context.moduleStateCounter());
+        return ConsensusModule.State.get(counter);
     }
 
     public long commitPosition()
     {
-        final ConsensusModule.Context context = clusteredArchive.consensusModule().context();
-        final Counter counter = context.commitPositionCounter();
-        if (counter.isClosed() || context.aeron().isClosed())
+        final Counter counter = clusteredArchive.consensusModule().context().commitPositionCounter();
+        if (counter.isClosed())
         {
             return NULL_POSITION;
         }
@@ -244,19 +255,19 @@ public class TestNode implements AutoCloseable
         return role() == Cluster.Role.FOLLOWER;
     }
 
-    public void terminationExpected(final boolean terminationExpected)
+    public void isTerminationExpected(final boolean isTerminationExpected)
     {
-        context.terminationExpected.set(terminationExpected);
+        context.isTerminationExpected.set(isTerminationExpected);
     }
 
     boolean hasServiceTerminated()
     {
-        return context.serviceWasTerminated.get();
+        return context.hasServiceTerminated.get();
     }
 
     public boolean hasMemberTerminated()
     {
-        return context.memberWasTerminated.get();
+        return context.hasMemberTerminated.get();
     }
 
     public int index()
@@ -297,19 +308,18 @@ public class TestNode implements AutoCloseable
         }
     }
 
-    @SuppressWarnings("NonAtomicOperationOnVolatileField")
     public static class TestService extends StubClusteredService
     {
         static final int SNAPSHOT_FRAGMENT_COUNT = 500;
         static final int SNAPSHOT_MSG_LENGTH = 1000;
 
         private int index;
-        private volatile int activeSessionCount;
-        private volatile int messageCount;
         private volatile boolean wasSnapshotTaken = false;
         private volatile boolean wasSnapshotLoaded = false;
         private volatile boolean hasReceivedUnexpectedMessage = false;
         private volatile Cluster.Role roleChangedTo = null;
+        private final AtomicInteger activeSessionCount = new AtomicInteger();
+        private final AtomicInteger messageCount = new AtomicInteger();
 
         TestService index(final int index)
         {
@@ -324,12 +334,12 @@ public class TestNode implements AutoCloseable
 
         int activeSessionCount()
         {
-            return activeSessionCount;
+            return activeSessionCount.get();
         }
 
         public int messageCount()
         {
-            return messageCount;
+            return messageCount.get();
         }
 
         public boolean wasSnapshotTaken()
@@ -368,10 +378,10 @@ public class TestNode implements AutoCloseable
 
             if (null != snapshotImage)
             {
-                activeSessionCount = cluster.clientSessions().size();
+                activeSessionCount.set(cluster.clientSessions().size());
 
                 final FragmentHandler handler =
-                    (buffer, offset, length, header) -> messageCount = buffer.getInt(offset);
+                    (buffer, offset, length, header) -> messageCount.set(buffer.getInt(offset));
 
                 int fragmentCount = 0;
                 while (true)
@@ -451,19 +461,19 @@ public class TestNode implements AutoCloseable
                 }
             }
 
-            ++messageCount;
+            messageCount.incrementAndGet();
         }
 
         public void onTakeSnapshot(final ExclusivePublication snapshotPublication)
         {
             final UnsafeBuffer buffer = new UnsafeBuffer(new byte[SNAPSHOT_MSG_LENGTH]);
-            buffer.putInt(0, messageCount);
-            buffer.putInt(SNAPSHOT_MSG_LENGTH - SIZE_OF_INT, messageCount);
+            buffer.putInt(0, messageCount.get());
+            buffer.putInt(SNAPSHOT_MSG_LENGTH - SIZE_OF_INT, messageCount.get());
 
             for (int i = 0; i < SNAPSHOT_FRAGMENT_COUNT; i++)
             {
                 idleStrategy.reset();
-                while (snapshotPublication.offer(buffer, 0, SNAPSHOT_MSG_LENGTH) <= 0)
+                while (snapshotPublication.offer(buffer, 0, SNAPSHOT_MSG_LENGTH) < 0)
                 {
                     idleStrategy.idle();
                 }
@@ -475,13 +485,13 @@ public class TestNode implements AutoCloseable
         public void onSessionOpen(final ClientSession session, final long timestamp)
         {
             super.onSessionOpen(session, timestamp);
-            activeSessionCount += 1;
+            activeSessionCount.incrementAndGet();
         }
 
         public void onSessionClose(final ClientSession session, final long timestamp, final CloseReason closeReason)
         {
             super.onSessionClose(session, timestamp, closeReason);
-            activeSessionCount -= 1;
+            activeSessionCount.decrementAndGet();
         }
 
         public void onRoleChange(final Cluster.Role newRole)
@@ -497,14 +507,21 @@ public class TestNode implements AutoCloseable
         final AeronArchive.Context aeronArchiveContext = new AeronArchive.Context();
         final ConsensusModule.Context consensusModuleContext = new ConsensusModule.Context();
         final ClusteredServiceContainer.Context serviceContainerContext = new ClusteredServiceContainer.Context();
-        final AtomicBoolean terminationExpected = new AtomicBoolean(false);
-        final AtomicBoolean memberWasTerminated = new AtomicBoolean(false);
-        final AtomicBoolean serviceWasTerminated = new AtomicBoolean(false);
+        final AtomicBoolean isTerminationExpected = new AtomicBoolean();
+        final AtomicBoolean hasMemberTerminated = new AtomicBoolean();
+        final AtomicBoolean hasServiceTerminated = new AtomicBoolean();
         final TestService service;
 
         Context(final TestService service)
         {
             this.service = service;
         }
+    }
+
+    public String toString()
+    {
+        return "TestNode{" +
+            "consensusModule=" + clusteredArchive.consensusModule() +
+            '}';
     }
 }

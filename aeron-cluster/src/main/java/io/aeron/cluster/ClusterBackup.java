@@ -1,5 +1,5 @@
 /*
- *  Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -73,14 +73,45 @@ public final class ClusterBackup implements AutoCloseable
      */
     public enum State
     {
-        INIT(0),
-        BACKUP_QUERY(1),
-        SNAPSHOT_LENGTH_RETRIEVE(2),
-        SNAPSHOT_RETRIEVE(3),
-        LIVE_LOG_REPLAY(4),
-        UPDATE_RECORDING_LOG(5),
+        /**
+         * Query leader for current status for backup.
+         */
+        BACKUP_QUERY(0),
+
+        /**
+         * Retrieve a copy of the latest snapshot from the leader.
+         */
+        SNAPSHOT_RETRIEVE(1),
+
+        /**
+         * Setup recording for live log.
+         */
+        LIVE_LOG_RECORD(2),
+
+        /**
+         * Replay the current live log since snapshot and join it.
+         */
+        LIVE_LOG_REPLAY(3),
+
+        /**
+         * Update the local {@link RecordingLog} for recovery.
+         */
+        UPDATE_RECORDING_LOG(4),
+
+        /**
+         * Back up live log and track progress until next query deadline is reached.
+         */
+        BACKING_UP(5),
+
+        /**
+         * On error or progress stall the backup is reset and started over again.
+         */
         RESET_BACKUP(6),
-        BACKING_UP(7);
+
+        /**
+         * The backup is complete and closed.
+         */
+        CLOSED(7);
 
         static final State[] STATES = values();
 
@@ -107,10 +138,27 @@ public final class ClusterBackup implements AutoCloseable
         }
 
         /**
+         * Get the {@link State} encoded in an {@link AtomicCounter}.
+         *
+         * @param counter to get the current state for.
+         * @return the state for the {@link ClusterBackup}.
+         * @throws ClusterException if the counter is not one of the valid values.
+         */
+        public static State get(final AtomicCounter counter)
+        {
+            if (counter.isClosed())
+            {
+                return CLOSED;
+            }
+
+            return get(counter.get());
+        }
+
+        /**
          * Get the {@link State} with matching {@link #code()}.
          *
          * @param code to lookup.
-         * @return the {@link State} with matching {@link #code()}.
+         * @return the {@link State} matching {@link #code()}.
          */
         public static State get(final long code)
         {
@@ -236,6 +284,16 @@ public final class ClusterBackup implements AutoCloseable
         public static final String CATCHUP_ENDPOINT_DEFAULT;
 
         /**
+         * Channel template used for catchup and replication of log and snapshots.
+         */
+        public static final String CLUSTER_BACKUP_CATCHUP_CHANNEL_PROP_NAME = "aeron.cluster.backup.catchup.channel";
+
+        /**
+         * Default channel template used for catchup and replication of log and snapshots.
+         */
+        public static final String CLUSTER_BACKUP_CATCHUP_CHANNEL_DEFAULT = "aeron:udp?alias=backup|cc=cubic";
+
+        /**
          * Interval at which a cluster backup will send backup queries.
          */
         public static final String CLUSTER_BACKUP_INTERVAL_PROP_NAME = "aeron.cluster.backup.interval";
@@ -253,7 +311,7 @@ public final class ClusterBackup implements AutoCloseable
         /**
          * Default timeout within which a cluster backup will expect a response from a backup query.
          */
-        public static final long CLUSTER_BACKUP_RESPONSE_TIMEOUT_DEFAULT_NS = TimeUnit.SECONDS.toNanos(2);
+        public static final long CLUSTER_BACKUP_RESPONSE_TIMEOUT_DEFAULT_NS = TimeUnit.SECONDS.toNanos(3);
 
         /**
          * Timeout within which a cluster backup will expect progress.
@@ -293,6 +351,18 @@ public final class ClusterBackup implements AutoCloseable
 
             CONSENSUS_CHANNEL_DEFAULT = consensusUri.toString();
             CATCHUP_ENDPOINT_DEFAULT = member.catchupEndpoint();
+        }
+
+        /**
+         * The value {@link #CLUSTER_BACKUP_CATCHUP_CHANNEL_DEFAULT} or system property
+         * {@link #CLUSTER_BACKUP_CATCHUP_CHANNEL_PROP_NAME} if set.
+         *
+         * @return {@link #CLUSTER_BACKUP_CATCHUP_CHANNEL_DEFAULT} or system property
+         * {@link #CLUSTER_BACKUP_CATCHUP_CHANNEL_PROP_NAME} if set.
+         */
+        public static String catchupChannel()
+        {
+            return System.getProperty(CLUSTER_BACKUP_CATCHUP_CHANNEL_PROP_NAME, CLUSTER_BACKUP_CATCHUP_CHANNEL_DEFAULT);
         }
 
         /**
@@ -363,6 +433,7 @@ public final class ClusterBackup implements AutoCloseable
         private int serviceSnapshotStreamId = ClusteredServiceContainer.Configuration.snapshotStreamId();
         private int logStreamId = ConsensusModule.Configuration.logStreamId();
         private String catchupEndpoint = Configuration.CATCHUP_ENDPOINT_DEFAULT;
+        private String catchupChannel = Configuration.catchupChannel();
 
         private long clusterBackupIntervalNs = Configuration.clusterBackupIntervalNs();
         private long clusterBackupResponseTimeoutNs = Configuration.clusterBackupResponseTimeoutNs();
@@ -471,6 +542,8 @@ public final class ClusterBackup implements AutoCloseable
                         .errorHandler(errorHandler)
                         .epochClock(epochClock)
                         .useConductorAgentInvoker(true)
+                        .awaitingIdleStrategy(YieldingIdleStrategy.INSTANCE)
+                        .subscriberErrorHandler(RethrowingErrorHandler.INSTANCE)
                         .clientLock(NoOpLock.INSTANCE));
 
                 if (null == errorCounter)
@@ -478,6 +551,11 @@ public final class ClusterBackup implements AutoCloseable
                     errorCounter = ClusterCounters.allocate(
                         aeron, "ClusterBackup errors", CLUSTER_BACKUP_ERROR_COUNT_TYPE_ID, clusterId);
                 }
+            }
+
+            if (!(aeron.context().subscriberErrorHandler() instanceof RethrowingErrorHandler))
+            {
+                throw new ClusterException("Aeron client must use a RethrowingErrorHandler");
             }
 
             if (null == aeron.conductorAgentInvoker())
@@ -998,10 +1076,10 @@ public final class ClusterBackup implements AutoCloseable
         }
 
         /**
-         * Set the catchup endpoint to use for snapshot and log retrieval.
+         * Set the catchup endpoint to use for log retrieval.
          *
-         * @param catchupEndpoint to use for the snapshot and log retrieval.
-         * @return catchup endpoint to use for the snapshot and log retrieval.
+         * @param catchupEndpoint to use for the log retrieval.
+         * @return catchup endpoint to use for the log retrieval.
          * @see Configuration#CATCHUP_ENDPOINT_DEFAULT
          */
         public Context catchupEndpoint(final String catchupEndpoint)
@@ -1011,14 +1089,38 @@ public final class ClusterBackup implements AutoCloseable
         }
 
         /**
-         * Get the catchup endpoint to use for snapshot and log retrieval.
+         * Get the catchup endpoint to use for log retrieval.
          *
-         * @return catchup endpoint to use for the snapshot and log retrieval.
+         * @return catchup endpoint to use for the log retrieval.
          * @see Configuration#CATCHUP_ENDPOINT_DEFAULT
          */
         public String catchupEndpoint()
         {
             return catchupEndpoint;
+        }
+
+        /**
+         * Set the catchup channel template to use for log and snapshot retrieval.
+         *
+         * @param catchupChannel to use for the log and snapshot retrieval.
+         * @return catchup endpoint to use for the log and snapshot retrieval.
+         * @see Configuration#CLUSTER_BACKUP_CATCHUP_CHANNEL_PROP_NAME
+         */
+        public Context catchupChannel(final String catchupChannel)
+        {
+            this.catchupChannel = catchupChannel;
+            return this;
+        }
+
+        /**
+         * Get the catchup channel template to use for log and snapshot retrieval.
+         *
+         * @return catchup endpoint to use for the log and snapshot retrieval.
+         * @see Configuration#CLUSTER_BACKUP_CATCHUP_CHANNEL_PROP_NAME
+         */
+        public String catchupChannel()
+        {
+            return catchupChannel;
         }
 
         /**

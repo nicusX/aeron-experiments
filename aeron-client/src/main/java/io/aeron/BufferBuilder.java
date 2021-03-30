@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import java.util.Arrays;
  * <p>
  * Similar in concept to {@link StringBuilder}.
  */
-public class BufferBuilder
+public final class BufferBuilder
 {
     static final int MAX_CAPACITY = Integer.MAX_VALUE - 8;
     static final int INIT_MIN_CAPACITY = 4096;

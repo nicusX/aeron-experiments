@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 
-SOURCE_DIR="`pwd`"
-export BUILD_DIR="`pwd`/cppbuild/Release"
+SOURCE_DIR="$(pwd)"
+export BUILD_DIR="${SOURCE_DIR}/cppbuild/Release"
 export BUILD_CONFIG=Release
 EXTRA_CMAKE_ARGS=""
 COVERAGE_BUILD=0
 
 ncpus=1
-case "`uname`" in
+case "$(uname)" in
   Darwin* )
-    ncpus=`sysctl -n hw.ncpu`
+    ncpus=$(sysctl -n hw.ncpu)
     ;;
   Linux*)
     ncpus=$(lscpu -p | egrep -v '^#' | wc -l)
@@ -18,34 +18,35 @@ esac
 
 while [[ $# -gt 0 ]]
 do
-  option="$1"
+  option="${1}"
   case ${option} in
     --c-warnings-as-errors)
-      EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DC_WARNINGS_AS_ERRORS=ON"
+      EXTRA_CMAKE_ARGS="${EXTRA_CMAKE_ARGS} -DC_WARNINGS_AS_ERRORS=ON"
       echo "Enabling warnings as errors for c"
       shift
       ;;
     --cxx-warnings-as-errors)
-      EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DCXX_WARNINGS_AS_ERRORS=ON"
+      EXTRA_CMAKE_ARGS="${EXTRA_CMAKE_ARGS} -DCXX_WARNINGS_AS_ERRORS=ON"
       echo "Enabling warnings as errors for c++"
       shift
       ;;
     -a|--build-archive-api)
-      echo "Enabling building of Aeron Archive API is now the default"
+      echo "Enabling building of Aeron Archive API is the default"
       shift
       ;;
     --slow-system-tests)
-      EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DAERON_SLOW_SYSTEM_TESTS=ON -DAERON_SYSTEM_TESTS=OFF"
+      EXTRA_CMAKE_ARGS="${EXTRA_CMAKE_ARGS} -DAERON_SLOW_SYSTEM_TESTS=ON"
+      echo "Enabling slow system tests"
       shift
       ;;
     -d|--debug-build)
-      EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug"
-      export BUILD_DIR="`pwd`/cppbuild/Debug"
+      EXTRA_CMAKE_ARGS="${EXTRA_CMAKE_ARGS} -DCMAKE_BUILD_TYPE=Debug"
+      export BUILD_DIR="${SOURCE_DIR}/cppbuild/Debug"
       export BUILD_CONFIG=Debug
       shift
       ;;
     -b|--build-aeron-driver)
-      echo "Enabling building of Aeron driver is now the default"
+      echo "Enabling building of Aeron driver is the default"
       shift
       ;;
     --no-parallel)
@@ -53,18 +54,18 @@ do
       shift
       ;;
     --no-system-tests)
-      EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DAERON_SYSTEM_TESTS=OFF"
+      EXTRA_CMAKE_ARGS="${EXTRA_CMAKE_ARGS} -DAERON_SYSTEM_TESTS=OFF"
       echo "Disabling system tests"
       shift
       ;;
     --sanitise-build)
-      EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DSANITISE_BUILD=ON"
+      EXTRA_CMAKE_ARGS="${EXTRA_CMAKE_ARGS} -DSANITISE_BUILD=ON"
       echo "Enabling sanitise build"
       shift
       ;;
     --coverage-build)
       if (hash lcov 2>/dev/null && hash genhtml 2>/dev/null); then
-        EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DCOVERAGE_BUILD=ON"
+        EXTRA_CMAKE_ARGS="${EXTRA_CMAKE_ARGS} -DCOVERAGE_BUILD=ON"
         echo "Enabling coverage build"
         COVERAGE_BUILD=1
       else
@@ -74,34 +75,35 @@ do
       shift
       ;;
     -h|--help)
-      echo "$0 [--c-warnings-as-errors] [--cxx-warnings-as-errors] [--debug-build] [--build-aeron-driver] [--build-archive-api] [--sanitise-build] [--coverage-build] [--no-parallel] [--no-system-tests] [--slow-system-tests]"
+      echo "${0} [--c-warnings-as-errors] [--cxx-warnings-as-errors] [--debug-build] [--build-aeron-driver] [--build-archive-api] [--sanitise-build] [--coverage-build] [--no-parallel] [--no-system-tests] [--slow-system-tests]"
       exit
       ;;
     *)
-      echo "Unknown option $option"
+      echo "Unknown option ${option}"
       echo "Use --help for help"
       exit
       ;;
   esac
 done
 
-echo "Will make with \"-j $ncpus\"."
+echo "Will make with \"-j ${ncpus}\"."
 
-if [[ -d "$BUILD_DIR" ]] ; then
-  echo "Build directory ($BUILD_DIR) exists, removing."
-  rm -rf ${BUILD_DIR}
+if [[ -d "${BUILD_DIR}" ]] ; then
+  echo "Build directory (${BUILD_DIR}) exists, removing."
+  rm -rf "${BUILD_DIR}"
 fi
 
-mkdir -p ${BUILD_DIR}
+mkdir -p "${BUILD_DIR}"
 
-if [[ "$COVERAGE_BUILD" -eq 1 ]] ; then
-  cd ${BUILD_DIR}
-  cmake -G "Unix Makefiles" ${EXTRA_CMAKE_ARGS} ${SOURCE_DIR} && make clean && make -j "$ncpus" all && ctest -C $BUILD_CONFIG -j "$ncpus"
+if [[ ${COVERAGE_BUILD} -eq 1 ]] ; then
+  cd "${BUILD_DIR}" || exit
+  cmake -G "Unix Makefiles" ${EXTRA_CMAKE_ARGS} "${SOURCE_DIR}" && make clean && make -j ${ncpus} all && ctest -C ${BUILD_CONFIG} -j ${ncpus}
   rm -rf coverage
   mkdir -p coverage
   lcov --directory . --base-directory . --capture -o coverage/cov.info
   lcov -o coverage/cov.stripped.info --remove coverage/cov.info "/usr/include/*" "*/googletest/*" "*/test/cpp/*" "*/googlemock/*"
   genhtml coverage/cov.stripped.info --demangle-cpp -o coverage
 else
-  (cd ${BUILD_DIR} && cmake -G "CodeBlocks - Unix Makefiles" ${EXTRA_CMAKE_ARGS} ${SOURCE_DIR} && make clean && make -j "$ncpus" all && ctest -C $BUILD_CONFIG --output-on-failure)
+  cd "${BUILD_DIR}" || exit
+  cmake -G "CodeBlocks - Unix Makefiles" ${EXTRA_CMAKE_ARGS} "${SOURCE_DIR}" && make clean && make -j ${ncpus} all && ctest -C ${BUILD_CONFIG} --output-on-failure
 fi

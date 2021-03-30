@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ public interface CongestionControl extends AutoCloseable
      */
     static int receiverWindowLength(final long outcome)
     {
-        return (int)outcome;
+        return (int)(outcome & 0xFFFFFFFFL);
     }
 
     /**
@@ -99,7 +99,7 @@ public interface CongestionControl extends AutoCloseable
     void onRttMeasurement(long nowNs, long rttNs, InetSocketAddress srcAddress);
 
     /**
-     * Called by {@link DriverConductor} upon execution of {@link PublicationImage#trackRebuild(long, long)} to
+     * Called by {@link DriverConductor} upon execution of {@link PublicationImage#trackRebuild(long)} to
      * pass on current status.
      * <p>
      * The return value must be packed using {@link CongestionControl#packOutcome(int, boolean)}.

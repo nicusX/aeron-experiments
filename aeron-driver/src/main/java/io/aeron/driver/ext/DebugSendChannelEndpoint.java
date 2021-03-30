@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,13 @@ public class DebugSendChannelEndpoint extends SendChannelEndpoint
     private final LossGenerator controlLossGenerator;
     private final UnsafeBuffer dataBuffer = new UnsafeBuffer();
 
+    /**
+     * Construct a {@link SendChannelEndpoint} with defaults for loss from {@link DebugChannelEndpointConfiguration}.
+     *
+     * @param udpChannel      for the media.
+     * @param statusIndicator for the endpoint for the channel.
+     * @param context         for configuration.
+     */
     public DebugSendChannelEndpoint(
         final UdpChannel udpChannel, final AtomicCounter statusIndicator, final MediaDriver.Context context)
     {
@@ -47,6 +54,15 @@ public class DebugSendChannelEndpoint extends SendChannelEndpoint
             DebugChannelEndpointConfiguration.sendControlLossGeneratorSupplier());
     }
 
+    /**
+     * Construct a {@link SendChannelEndpoint} with configuration for loss rate and seed.
+     *
+     * @param udpChannel           for the media.
+     * @param statusIndicator      for the endpoint for the channel.
+     * @param context              for configuration.
+     * @param dataLossGenerator    for the random loss on the data stream.
+     * @param controlLossGenerator for the random loss on the control stream.
+     */
     public DebugSendChannelEndpoint(
         final UdpChannel udpChannel,
         final AtomicCounter statusIndicator,
@@ -60,6 +76,9 @@ public class DebugSendChannelEndpoint extends SendChannelEndpoint
         this.controlLossGenerator = controlLossGenerator;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int send(final ByteBuffer buffer)
     {
         int count = buffer.remaining();
@@ -73,6 +92,9 @@ public class DebugSendChannelEndpoint extends SendChannelEndpoint
         return count;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onStatusMessage(
         final StatusMessageFlyweight msg,
         final UnsafeBuffer buffer,
@@ -85,6 +107,9 @@ public class DebugSendChannelEndpoint extends SendChannelEndpoint
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onNakMessage(
         final NakFlyweight msg,
         final UnsafeBuffer buffer,
@@ -97,6 +122,9 @@ public class DebugSendChannelEndpoint extends SendChannelEndpoint
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onRttMeasurement(
         final RttMeasurementFlyweight msg,
         final UnsafeBuffer buffer,

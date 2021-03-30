@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,9 +23,6 @@ import net.bytebuddy.asm.Advice;
 
 import static io.aeron.agent.DriverEventLogger.LOGGER;
 
-/**
- * Intercepts calls in the driver to log the clean up of major resources.
- */
 class CleanupInterceptor
 {
     static class CleanupImage

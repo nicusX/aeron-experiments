@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -88,12 +88,14 @@ public class MinFlowControlSystemTest
         driverAContext.publicationTermBufferLength(TERM_BUFFER_LENGTH)
             .aeronDirectoryName(baseDirA)
             .timerIntervalNs(TimeUnit.MILLISECONDS.toNanos(100))
+            .flowControlReceiverTimeoutNs(TimeUnit.MILLISECONDS.toNanos(1000))
             .errorHandler(Tests::onError)
             .threadingMode(ThreadingMode.SHARED);
 
         driverBContext.publicationTermBufferLength(TERM_BUFFER_LENGTH)
             .aeronDirectoryName(baseDirB)
             .timerIntervalNs(TimeUnit.MILLISECONDS.toNanos(100))
+            .flowControlReceiverTimeoutNs(TimeUnit.MILLISECONDS.toNanos(1000))
             .errorHandler(Tests::onError)
             .threadingMode(ThreadingMode.SHARED);
 
@@ -190,10 +192,7 @@ public class MinFlowControlSystemTest
         }
 
         verify(fragmentHandlerB, times(numMessagesToSend)).onFragment(
-            any(DirectBuffer.class),
-            anyInt(),
-            eq(MESSAGE_LENGTH),
-            any(Header.class));
+            any(DirectBuffer.class), anyInt(), eq(MESSAGE_LENGTH), any(Header.class));
     }
 
     @Test
@@ -203,7 +202,6 @@ public class MinFlowControlSystemTest
         final int numMessagesToSend = NUM_MESSAGES_PER_TERM * 3;
         int numMessagesLeftToSend = numMessagesToSend;
         int numFragmentsReadFromA = 0, numFragmentsReadFromB = 0;
-        boolean isBClosed = false;
 
         driverBContext.imageLivenessTimeoutNs(TimeUnit.MILLISECONDS.toNanos(500));
         driverAContext.multicastFlowControlSupplier(new MinMulticastFlowControlSupplier());
@@ -219,6 +217,7 @@ public class MinFlowControlSystemTest
             Tests.yield();
         }
 
+        boolean isBClosed = false;
         while (numFragmentsReadFromA < numMessagesToSend)
         {
             if (numMessagesLeftToSend > 0)
@@ -245,13 +244,9 @@ public class MinFlowControlSystemTest
         }
 
         verify(fragmentHandlerA, times(numMessagesToSend)).onFragment(
-            any(DirectBuffer.class),
-            anyInt(),
-            eq(MESSAGE_LENGTH),
-            any(Header.class));
+            any(DirectBuffer.class), anyInt(), eq(MESSAGE_LENGTH), any(Header.class));
     }
 
-    @SuppressWarnings("methodlength")
     @Test
     @Timeout(20)
     void shouldPreventConnectionUntilGroupMinSizeIsMet()
@@ -277,10 +272,8 @@ public class MinFlowControlSystemTest
         launch();
 
         final CountersReader countersReader = clientA.countersReader();
-
         TestMediaDriver driverC = null;
         Aeron clientC = null;
-
         Publication publication = null;
         Subscription subscription0 = null;
         Subscription subscription1 = null;
@@ -296,9 +289,7 @@ public class MinFlowControlSystemTest
                     .threadingMode(ThreadingMode.SHARED),
                 testWatcher);
 
-            clientC = Aeron.connect(
-                new Aeron.Context()
-                    .aeronDirectoryName(driverC.aeronDirectoryName()));
+            clientC = Aeron.connect(new Aeron.Context().aeronDirectoryName(driverC.aeronDirectoryName()));
 
             subscription0 = clientA.addSubscription(uriPlain, STREAM_ID);
             subscription1 = clientB.addSubscription(uriPlain, STREAM_ID);

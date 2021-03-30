@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,11 +43,17 @@ final class AeronClient implements DriverManagedResource
         this.heartbeatTimestamp = heartbeatTimestamp;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
         heartbeatTimestamp.close();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onTimeEvent(final long timeNs, final long timeMs, final DriverConductor conductor)
     {
         if (timeMs > (heartbeatTimestamp.get() + clientLivenessTimeoutMs))
@@ -64,6 +70,9 @@ final class AeronClient implements DriverManagedResource
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean hasReachedEndOfLife()
     {
         return reachedEndOfLife;

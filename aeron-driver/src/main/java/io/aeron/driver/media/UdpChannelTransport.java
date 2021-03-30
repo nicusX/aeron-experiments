@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,26 +43,73 @@ import static java.net.StandardSocketOptions.SO_SNDBUF;
  */
 public abstract class UdpChannelTransport implements AutoCloseable
 {
+    /**
+     * Context for configuration.
+     */
     protected final MediaDriver.Context context;
-    protected final UdpChannel udpChannel;
-    protected final AtomicCounter invalidPackets;
-    protected final ErrorHandler errorHandler;
-    protected UdpTransportPoller transportPoller;
-    protected SelectionKey selectionKey;
-    protected final InetSocketAddress bindAddress;
-    protected final InetSocketAddress endPointAddress;
-    protected InetSocketAddress connectAddress;
-    protected DatagramChannel sendDatagramChannel;
-    protected DatagramChannel receiveDatagramChannel;
-    protected int multicastTtl = 0;
-    protected boolean isClosed = false;
 
-    public UdpChannelTransport(
+    /**
+     * {@link ErrorHandler} for logging errors and progressing with throwing.
+     */
+    protected final ErrorHandler errorHandler;
+
+    /**
+     * Media configuration for the channel.
+     */
+    protected final UdpChannel udpChannel;
+
+    /**
+     * Channel to be used for sending frames from the perspective of the endpoint.
+     */
+    protected DatagramChannel sendDatagramChannel;
+
+    /**
+     * Channel to be used for receiving frames from the perspective of the endpoint.
+     */
+    protected DatagramChannel receiveDatagramChannel;
+
+    /**
+     * Address to connect to if appropriate for sending.
+     */
+    protected InetSocketAddress connectAddress;
+
+    /**
+     * To be used when polling the transport.
+     */
+    protected SelectionKey selectionKey;
+
+    private UdpTransportPoller transportPoller;
+    private final InetSocketAddress bindAddress;
+    private final InetSocketAddress endPointAddress;
+    private final AtomicCounter invalidPackets;
+
+    /**
+     * Can be used to check if the transport is closed so an operation does not proceed.
+     */
+    protected boolean isClosed = false;
+    private int multicastTtl = 0;
+    private final int socketSndbufLength;
+    private final int socketRcvbufLength;
+
+    /**
+     * Construct a transport for a given channel.
+     *
+     * @param udpChannel      configuration for the media.
+     * @param endPointAddress to which data will be sent.
+     * @param bindAddress     for listening on.
+     * @param connectAddress  for sending data to.
+     * @param context         for configuration.
+     * @param socketRcvbufLength set SO_RCVBUF for socket, 0 for OS default.
+     * @param socketSndbufLength set SO_SNDBUF for socket, 0 for OS default.
+     */
+    protected UdpChannelTransport(
         final UdpChannel udpChannel,
         final InetSocketAddress endPointAddress,
         final InetSocketAddress bindAddress,
         final InetSocketAddress connectAddress,
-        final MediaDriver.Context context)
+        final MediaDriver.Context context,
+        final int socketRcvbufLength,
+        final int socketSndbufLength)
     {
         this.context = context;
         this.udpChannel = udpChannel;
@@ -71,6 +118,34 @@ public abstract class UdpChannelTransport implements AutoCloseable
         this.bindAddress = bindAddress;
         this.connectAddress = connectAddress;
         this.invalidPackets = context.systemCounters().get(SystemCounterDescriptor.INVALID_PACKETS);
+        this.socketRcvbufLength = socketRcvbufLength;
+        this.socketSndbufLength = socketSndbufLength;
+    }
+
+    /**
+     * Construct a transport for a given channel.
+     *
+     * @param udpChannel      configuration for the media.
+     * @param endPointAddress to which data will be sent.
+     * @param bindAddress     for listening on.
+     * @param connectAddress  for sending data to.
+     * @param context         for configuration.
+     */
+    protected UdpChannelTransport(
+        final UdpChannel udpChannel,
+        final InetSocketAddress endPointAddress,
+        final InetSocketAddress bindAddress,
+        final InetSocketAddress connectAddress,
+        final MediaDriver.Context context)
+    {
+        this(
+            udpChannel,
+            endPointAddress,
+            bindAddress,
+            connectAddress,
+            context,
+            udpChannel.socketRcvbufLengthOrDefault(context.socketRcvbufLength()),
+            udpChannel.socketSndbufLengthOrDefault(context.socketSndbufLength()));
     }
 
     /**
@@ -132,14 +207,14 @@ public abstract class UdpChannelTransport implements AutoCloseable
                 sendDatagramChannel.connect(connectAddress);
             }
 
-            if (0 != context.socketSndbufLength())
+            if (0 != socketSndbufLength())
             {
-                sendDatagramChannel.setOption(SO_SNDBUF, context.socketSndbufLength());
+                sendDatagramChannel.setOption(SO_SNDBUF, socketSndbufLength());
             }
 
-            if (0 != context.socketRcvbufLength())
+            if (0 != socketRcvbufLength())
             {
-                receiveDatagramChannel.setOption(SO_RCVBUF, context.socketRcvbufLength());
+                receiveDatagramChannel.setOption(SO_RCVBUF, socketRcvbufLength());
             }
 
             sendDatagramChannel.configureBlocking(false);
@@ -253,17 +328,23 @@ public abstract class UdpChannelTransport implements AutoCloseable
             }
 
             CloseHelper.close(errorHandler, sendDatagramChannel);
-
-            if (receiveDatagramChannel != sendDatagramChannel && null != receiveDatagramChannel)
-            {
-                CloseHelper.close(errorHandler, receiveDatagramChannel);
-            }
+            CloseHelper.close(errorHandler, receiveDatagramChannel);
 
             if (null != transportPoller)
             {
                 transportPoller.selectNowWithoutProcessing();
             }
         }
+    }
+
+    /**
+     * Has the channel been closed by calling {@link #close()}.
+     *
+     * @return true if the channel has been closed.
+     */
+    public boolean isClosed()
+    {
+        return isClosed;
     }
 
     /**
@@ -388,5 +469,25 @@ public abstract class UdpChannelTransport implements AutoCloseable
 
             throw new AeronException(message, ex);
         }
+    }
+
+    /**
+     * Get the configured OS send socket buffer length (SO_SNDBUF) for the endpoint's socket.
+     *
+     * @return OS socket send buffer length or 0 if using OS default.
+     */
+    public int socketSndbufLength()
+    {
+        return 0 != udpChannel.socketSndbufLength() ? udpChannel.socketSndbufLength() : context.socketSndbufLength();
+    }
+
+    /**
+     * Get the configured OS receive socket buffer length (SO_RCVBUF) for the endpoint's socket.
+     *
+     * @return OS socket receive buffer length or 0 if using OS default.
+     */
+    public int socketRcvbufLength()
+    {
+        return socketRcvbufLength;
     }
 }

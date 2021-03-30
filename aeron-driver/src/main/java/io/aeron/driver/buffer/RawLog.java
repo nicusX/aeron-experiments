@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,13 +66,6 @@ public interface RawLog extends AutoCloseable
      * @return true if successful or false if it should be reattempted.
      */
     boolean free();
-
-    /**
-     * Has the {@link #free()} method been called.
-     *
-     * @return true if an attempt to free is in progress or completed.
-     */
-    boolean isInactive();
 
     /**
      * Close the resource regardless of if {@link #free()} has succeeded or not.

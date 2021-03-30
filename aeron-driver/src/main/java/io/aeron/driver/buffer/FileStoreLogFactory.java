@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -157,16 +157,18 @@ public class FileStoreLogFactory implements LogFactory
         {
             final long usableSpace = getUsableSpace();
 
-            if (usableSpace <= lowStorageWarningThreshold)
-            {
-                System.out.format("Warning: space is running low in %s threshold=%,d usable=%,d%n",
-                    fileStore, lowStorageWarningThreshold, usableSpace);
-            }
-
             if (usableSpace < logLength)
             {
                 throw new AeronException(
                     "insufficient usable storage for new log of length=" + logLength + " in " + fileStore);
+            }
+
+            if (usableSpace <= lowStorageWarningThreshold)
+            {
+                final String msg = String.format("space is running low in threshold=%,d usable=%,d %s",
+                    lowStorageWarningThreshold, usableSpace, fileStore);
+
+                errorHandler.onError(new AeronException(msg, AeronException.Category.WARN));
             }
         }
     }

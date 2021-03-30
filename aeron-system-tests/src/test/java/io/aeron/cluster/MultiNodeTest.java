@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,16 @@
  */
 package io.aeron.cluster;
 
+import io.aeron.cluster.client.AeronCluster;
 import io.aeron.cluster.service.Cluster;
 import io.aeron.test.cluster.TestCluster;
 import io.aeron.test.cluster.TestNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import static io.aeron.Aeron.NULL_VALUE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class MultiNodeTest
@@ -55,8 +59,8 @@ public class MultiNodeTest
             assertEquals(appointedLeaderIndex, leader.index());
             assertEquals(Cluster.Role.LEADER, leader.role());
 
-            cluster.connectClient();
             final int messageCount = 10;
+            cluster.connectClient();
             cluster.sendMessages(messageCount);
             cluster.awaitResponseMessageCount(messageCount);
             cluster.awaitServicesMessageCount(messageCount);
@@ -82,10 +86,10 @@ public class MultiNodeTest
             assertEquals(appointedLeaderIndex, leader.index());
             assertEquals(Cluster.Role.LEADER, leader.role());
 
-            cluster.connectClient();
             final int preCatchupMessageCount = 5;
             final int postCatchupMessageCount = 10;
             final int totalMessageCount = preCatchupMessageCount + postCatchupMessageCount;
+            cluster.connectClient();
             cluster.sendMessages(preCatchupMessageCount);
             cluster.awaitResponseMessageCount(preCatchupMessageCount);
             cluster.awaitServicesMessageCount(preCatchupMessageCount);
@@ -101,6 +105,24 @@ public class MultiNodeTest
 
             cluster.awaitLeader();
             cluster.awaitServicesMessageCount(totalMessageCount);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "9020", "0" })
+    @Timeout(20)
+    void shouldConnectClientUsingResolvedResponsePort(final String responsePort)
+    {
+        final AeronCluster.Context clientCtx = new AeronCluster.Context()
+            .ingressChannel("aeron:udp?term-length=64k")
+            .egressChannel("aeron:udp?term-length=64k|endpoint=localhost:" + responsePort);
+
+        try (TestCluster cluster = TestCluster.startThreeNodeStaticCluster(NULL_VALUE))
+        {
+            final int numMessages = 10;
+            cluster.connectClient(clientCtx);
+            cluster.sendMessages(numMessages);
+            cluster.awaitResponseMessageCount(numMessages);
         }
     }
 }

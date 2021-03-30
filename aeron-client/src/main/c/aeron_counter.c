@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,9 +28,7 @@ int aeron_counter_create(
     *counter = NULL;
     if (aeron_alloc((void **)&_counter, sizeof(aeron_counter_t)) < 0)
     {
-        int errcode = errno;
-
-        aeron_set_err(errcode, "aeron_counter_create (%d): %s", errcode, strerror(errcode));
+        AERON_APPEND_ERR("%s", "Unable to allocate counter");
         return -1;
     }
 
@@ -67,8 +65,11 @@ int aeron_counter_constants(aeron_counter_t *counter, aeron_counter_constants_t 
 {
     if (NULL == counter || NULL == constants)
     {
-        errno = EINVAL;
-        aeron_set_err(EINVAL, "%s", strerror(EINVAL));
+        AERON_SET_ERR(
+            EINVAL,
+            "Parameters must not be null, counter: %s, constants: %s",
+            AERON_NULL_STR(counter),
+            AERON_NULL_STR(constants));
         return -1;
     }
 

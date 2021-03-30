@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package io.aeron.driver;
 
 import io.aeron.ChannelUri;
 import io.aeron.driver.media.SendChannelEndpoint;
-import org.agrona.LangUtil;
+import org.agrona.concurrent.AgentTerminationException;
 import org.agrona.concurrent.status.AtomicCounter;
 
 import java.net.InetSocketAddress;
@@ -150,9 +150,9 @@ final class SenderProxy
             }
 
             Thread.yield();
-            if (Thread.interrupted())
+            if (Thread.currentThread().isInterrupted())
             {
-                LangUtil.rethrowUnchecked(new InterruptedException());
+                throw new AgentTerminationException("interrupted");
             }
         }
     }

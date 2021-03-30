@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ package io.aeron.cluster.service;
  */
 class ActiveLogEvent
 {
-    final long leadershipTermId;
     final long logPosition;
     final long maxLogPosition;
     final int memberId;
@@ -31,7 +30,6 @@ class ActiveLogEvent
     final String channel;
 
     ActiveLogEvent(
-        final long leadershipTermId,
         final long logPosition,
         final long maxLogPosition,
         final int memberId,
@@ -41,7 +39,6 @@ class ActiveLogEvent
         final Cluster.Role role,
         final String channel)
     {
-        this.leadershipTermId = leadershipTermId;
         this.logPosition = logPosition;
         this.maxLogPosition = maxLogPosition;
         this.memberId = memberId;
@@ -55,7 +52,6 @@ class ActiveLogEvent
     public String toString()
     {
         return "ActiveLogEvent{" +
-            "leadershipTermId=" + leadershipTermId +
             ", logPosition=" + logPosition +
             ", maxLogPosition=" + maxLogPosition +
             ", memberId=" + memberId +

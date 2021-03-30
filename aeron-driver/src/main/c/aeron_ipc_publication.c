@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,21 +35,19 @@ int aeron_ipc_publication_create(
     aeron_driver_uri_publication_params_t *params,
     bool is_exclusive,
     aeron_system_counters_t *system_counters,
-    const size_t channel_length,
+    size_t channel_length,
     const char *channel)
 {
     char path[AERON_MAX_PATH];
     int path_length = aeron_ipc_publication_location(path, sizeof(path), context->aeron_dir, registration_id);
     aeron_ipc_publication_t *_pub = NULL;
-    const uint64_t usable_fs_space = context->usable_fs_space_func(context->aeron_dir);
     const uint64_t log_length = aeron_logbuffer_compute_log_length(params->term_length, context->file_page_size);
-    int64_t now_ns = aeron_clock_cached_nano_time(context->cached_clock);
 
     *publication = NULL;
 
-    if (usable_fs_space < log_length)
+    if (context->perform_storage_checks && context->usable_fs_space_func(context->aeron_dir) < log_length)
     {
-        aeron_set_err(
+        AERON_SET_ERR(
             ENOSPC,
             "Insufficient usable storage for new log of length=%" PRId64 " in %s", log_length, context->aeron_dir);
         return -1;
@@ -57,7 +55,7 @@ int aeron_ipc_publication_create(
 
     if (aeron_alloc((void **)&_pub, sizeof(aeron_ipc_publication_t)) < 0)
     {
-        aeron_set_err(ENOMEM, "%s", "Could not allocate IPC publication");
+        AERON_APPEND_ERR("%s", "Could not allocate IPC publication");
         return -1;
     }
 
@@ -65,15 +63,16 @@ int aeron_ipc_publication_create(
     if (aeron_alloc((void **)(&_pub->log_file_name), (size_t)path_length + 1) < 0)
     {
         aeron_free(_pub);
-        aeron_set_err(ENOMEM, "%s", "Could not allocate IPC publication log_file_name");
+        AERON_APPEND_ERR("%s", "Could not allocate IPC publication log_file_name");
         return -1;
     }
 
     _pub->channel = NULL;
     if (aeron_alloc((void **)(&_pub->channel), (size_t)channel_length + 1) < 0)
     {
+        aeron_free(_pub->log_file_name);
         aeron_free(_pub);
-        aeron_set_err(ENOMEM, "%s", "Could not allocate IPC publication channel");
+        AERON_APPEND_ERR("%s", "Could not allocate IPC publication channel");
         return -1;
     }
 
@@ -81,8 +80,9 @@ int aeron_ipc_publication_create(
         &_pub->mapped_raw_log, path, params->is_sparse, params->term_length, context->file_page_size) < 0)
     {
         aeron_free(_pub->log_file_name);
+        aeron_free(_pub->channel);
         aeron_free(_pub);
-        aeron_set_err(aeron_errcode(), "error mapping IPC raw log %s: %s", path, aeron_errmsg());
+        AERON_APPEND_ERR("error mapping IPC raw log: %s", path);
         return -1;
     }
     _pub->raw_log_close_func = context->raw_log_close_func;
@@ -127,6 +127,8 @@ int aeron_ipc_publication_create(
 
         _pub->log_meta_data->active_term_count = 0;
     }
+
+    int64_t now_ns = aeron_clock_cached_nano_time(context->cached_clock);
 
     _pub->log_meta_data->initial_term_id = initial_term_id;
     _pub->log_meta_data->mtu_length = (int32_t)params->mtu_length;
@@ -197,7 +199,6 @@ void aeron_ipc_publication_close(aeron_counters_manager_t *counters_manager, aer
 
         publication->raw_log_close_func(&publication->mapped_raw_log, publication->log_file_name);
         aeron_free(publication->log_file_name);
-
         aeron_free(publication->channel);
     }
 

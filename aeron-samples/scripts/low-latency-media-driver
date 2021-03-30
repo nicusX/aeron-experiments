@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ##
-## Copyright 2014-2020 Real Logic Limited.
+## Copyright 2014-2021 Real Logic Limited.
 ##
 ## Licensed under the Apache License, Version 2.0 (the "License");
 ## you may not use this file except in compliance with the License.
@@ -15,16 +15,7 @@
 ## limitations under the License.
 ##
 
-VERSION=$(cat ../../version.txt)
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
-${JAVA_HOME}/bin/java \
-    -cp ../../aeron-all/build/libs/aeron-all-${VERSION}.jar \
-    -XX:+UnlockExperimentalVMOptions \
-    -XX:+TrustFinalNonStaticFields \
-    -XX:+UnlockDiagnosticVMOptions \
-    -XX:GuaranteedSafepointInterval=300000 \
-    -XX:+UseBiasedLocking \
-    -XX:BiasedLockingStartupDelay=0 \
-    -XX:+UseParallelOldGC \
-    ${JVM_OPTS} io.aeron.driver.MediaDriver \
+exec "${DIR}/run-java" io.aeron.driver.MediaDriver \
     low-latency.properties "$@"

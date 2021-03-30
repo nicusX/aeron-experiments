@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ package io.aeron.security;
 import org.agrona.collections.ArrayUtil;
 
 /**
- * Default Authenticator that authenticates all connection requests immediately.
+ * Default Authenticator which authenticates all connection requests immediately.
  */
 public class DefaultAuthenticatorSupplier implements AuthenticatorSupplier
 {
@@ -30,14 +30,20 @@ public class DefaultAuthenticatorSupplier implements AuthenticatorSupplier
     /**
      * Singleton instance which can be used to avoid allocation.
      */
-    public static final DefaultAuthenticator DEFAULT_AUTHENTICATOR = new DefaultAuthenticator();
+    public static final Authenticator DEFAULT_AUTHENTICATOR = new DefaultAuthenticator();
 
+    /**
+     * Gets the singleton instance {@link #DEFAULT_AUTHENTICATOR} which authenticates all connection requests
+     * immediately.
+     *
+     * @return {@link #DEFAULT_AUTHENTICATOR} which authenticates all connection requests immediately.
+     */
     public Authenticator get()
     {
         return DEFAULT_AUTHENTICATOR;
     }
 
-    static class DefaultAuthenticator implements Authenticator
+    static final class DefaultAuthenticator implements Authenticator
     {
         public void onConnectRequest(final long sessionId, final byte[] encodedCredentials, final long nowMs)
         {

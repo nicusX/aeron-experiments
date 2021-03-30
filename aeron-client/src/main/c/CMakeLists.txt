@@ -1,4 +1,4 @@
-# Copyright 2014-2020 Real Logic Limited.
+# Copyright 2014-2021 Real Logic Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,6 +21,13 @@ if (MSVC AND "${CMAKE_SYSTEM_NAME}" MATCHES "Windows")
     set(AERON_LIB_WINSOCK_LIBS wsock32 ws2_32 Iphlpapi)
     set(WSAPOLL_PROTOTYPE_EXISTS True)
 endif ()
+
+if (MSVC)
+    set(AERON_STATIC_LIB_LINK_OPTS "")
+else()
+    # Because dlsym() is used to load strategies.
+    set(AERON_STATIC_LIB_LINK_OPTS "-rdynamic")
+endif()
 
 if (WSAPOLL_PROTOTYPE_EXISTS)
     add_definitions(-DHAVE_WSAPOLL)
@@ -91,8 +98,7 @@ set(SOURCE
     aeron_subscription.c
     aeron_version.c
     aeron_windows.c
-    aeronc.c
-    )
+    aeronc.c)
 
 set(HEADERS
     collections/aeron_array_to_ptr_hash_map.h
@@ -161,8 +167,7 @@ set(HEADERS
     aeron_socket.h
     aeron_subscription.h
     aeron_windows.h
-    aeronc.h
-    )
+    aeronc.h)
 
 add_library(aeron SHARED ${SOURCE} ${HEADERS})
 target_include_directories(aeron
@@ -191,7 +196,7 @@ target_link_libraries(
     ${AERON_LIB_M_LIBS}
     ${CMAKE_THREAD_LIBS_INIT}
     ${AERON_LIB_WINSOCK_LIBS}
-    -rdynamic # Because dlsym() is used to load strategies.
+    ${AERON_STATIC_LIB_LINK_OPTS}
     )
 
 if (AERON_INSTALL_TARGETS)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import org.agrona.collections.ArrayUtil;
 
 import java.util.Arrays;
 
-class ClusterSession
+final class ClusterSession
 {
     static final byte[] NULL_PRINCIPAL = ArrayUtil.EMPTY_BYTE_ARRAY;
     static final int MAX_ENCODED_PRINCIPAL_LENGTH = 4 * 1024;
@@ -38,12 +38,13 @@ class ClusterSession
     }
 
     private boolean hasNewLeaderEventPending = false;
+    private boolean hasOpenEventPending = true;
+    private boolean isBackupSession = false;
     private final long id;
     private long correlationId;
     private long openedLogPosition = Aeron.NULL_VALUE;
     private long closedLogPosition = Aeron.NULL_VALUE;
     private long timeOfLastActivityNs;
-    private boolean isBackupSession = false;
     private final int responseStreamId;
     private final String responseChannel;
     private Publication responsePublication;
@@ -113,6 +114,9 @@ class ClusterSession
     void closing(final CloseReason closeReason)
     {
         this.closeReason = closeReason;
+        this.hasOpenEventPending = false;
+        this.hasNewLeaderEventPending = false;
+        this.timeOfLastActivityNs = 0;
         state(State.CLOSING);
     }
 
@@ -196,8 +200,8 @@ class ClusterSession
     void open(final long openedLogPosition)
     {
         this.openedLogPosition = openedLogPosition;
-        state(State.OPEN);
         encodedPrincipal = null;
+        state(State.OPEN);
     }
 
     byte[] encodedPrincipal()
@@ -213,9 +217,9 @@ class ClusterSession
 
     void reject(final EventCode code, final String responseDetail)
     {
-        state(State.REJECTED);
         this.eventCode = code;
         this.responseDetail = responseDetail;
+        state(State.REJECTED);
     }
 
     EventCode eventCode()
@@ -268,6 +272,16 @@ class ClusterSession
         return hasNewLeaderEventPending;
     }
 
+    boolean hasOpenEventPending()
+    {
+        return hasOpenEventPending;
+    }
+
+    void hasOpenEventPending(final boolean flag)
+    {
+        hasOpenEventPending = flag;
+    }
+
     boolean isBackupSession()
     {
         return isBackupSession;
@@ -308,6 +322,7 @@ class ClusterSession
             ", closeReason=" + closeReason +
             ", state=" + state +
             ", hasNewLeaderEventPending=" + hasNewLeaderEventPending +
+            ", hasOpenEventPending=" + hasOpenEventPending +
             ", encodedPrincipal=" + Arrays.toString(encodedPrincipal) +
             '}';
     }

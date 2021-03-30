@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,9 @@ import io.aeron.Aeron;
 import io.aeron.CommonContext;
 import io.aeron.Image;
 import io.aeron.Publication;
-import io.aeron.exceptions.AeronException;
-import io.aeron.exceptions.ConfigurationException;
 import io.aeron.driver.media.ReceiveChannelEndpoint;
 import io.aeron.driver.media.SendChannelEndpoint;
+import io.aeron.exceptions.ConfigurationException;
 import io.aeron.logbuffer.BufferClaim;
 import io.aeron.logbuffer.FrameDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
@@ -35,10 +34,7 @@ import org.agrona.concurrent.ringbuffer.RingBufferDescriptor;
 import org.agrona.concurrent.status.CountersReader;
 import org.agrona.concurrent.status.StatusIndicator;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.StandardSocketOptions;
-import java.nio.channels.DatagramChannel;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -55,7 +51,7 @@ import static org.agrona.SystemUtil.*;
 /**
  * Configuration options for the {@link MediaDriver}.
  */
-public class Configuration
+public final class Configuration
 {
     /**
      * Should the driver print its configuration on start to {@link System#out}.
@@ -537,12 +533,12 @@ public class Configuration
     /**
      * Limit for the number of commands drained in one operation.
      */
-    public static final int COMMAND_DRAIN_LIMIT = 10;
+    public static final int COMMAND_DRAIN_LIMIT = 2;
 
     /**
      * Capacity for the command queues used between driver agents.
      */
-    public static final int CMD_QUEUE_CAPACITY = 256;
+    public static final int CMD_QUEUE_CAPACITY = 128;
 
     /**
      * Timeout on cleaning up pending SETUP message state on subscriber.
@@ -669,7 +665,7 @@ public class Configuration
      * Default value for the receiver timeout used to determine if the receiver should still be monitored for
      * flow control purposes.
      */
-    public static final long FLOW_CONTROL_RECEIVER_TIMEOUT_DEFAULT_NS = TimeUnit.SECONDS.toNanos(2);
+    public static final long FLOW_CONTROL_RECEIVER_TIMEOUT_DEFAULT_NS = TimeUnit.SECONDS.toNanos(5);
 
     /**
      * Property name for flow control timeout after which with no status messages the receiver is consider gone.
@@ -705,6 +701,16 @@ public class Configuration
      * Default value for the re-resolution check interval.
      */
     public static final long RE_RESOLUTION_CHECK_INTERVAL_DEFAULT_NS = TimeUnit.SECONDS.toNanos(1);
+
+    /**
+     * Property name for threshold value for the conductor work cycle threshold to track for being exceeded.
+     */
+    public static final String CONDUCTOR_CYCLE_THRESHOLD_PROP_NAME = "aeron.driver.conductor.cycle.threshold";
+
+    /**
+     * Default threshold value for the conductor work cycle threshold to track for being exceeded.
+     */
+    public static final long CONDUCTOR_CYCLE_THRESHOLD_DEFAULT_NS = TimeUnit.MILLISECONDS.toNanos(1000);
 
     /**
      * Should the driver configuration be printed on start.
@@ -1376,6 +1382,16 @@ public class Configuration
     }
 
     /**
+     * Get threshold value for the conductor work cycle threshold to track for being exceeded.
+     *
+     * @return threshold value in nanoseconds.
+     */
+    public static long conductorCycleThresholdNs()
+    {
+        return getDurationInNanos(CONDUCTOR_CYCLE_THRESHOLD_PROP_NAME, CONDUCTOR_CYCLE_THRESHOLD_DEFAULT_NS);
+    }
+
+    /**
      * Get the {@link IdleStrategy} that should be applied to {@link org.agrona.concurrent.Agent}s.
      *
      * @param strategyName       of the class to be created.
@@ -1673,7 +1689,8 @@ public class Configuration
     {
         if (mtuLength > initialWindowLength)
         {
-            throw new ConfigurationException("initial window length must be >= to MTU length: " + mtuLength);
+            throw new ConfigurationException(
+                "mtuLength=" + mtuLength + " > initialWindowLength=" + initialWindowLength);
         }
     }
 
@@ -1686,15 +1703,22 @@ public class Configuration
      */
     public static void validateMtuLength(final int mtuLength)
     {
-        if (mtuLength <= DataHeaderFlyweight.HEADER_LENGTH || mtuLength > MAX_UDP_PAYLOAD_LENGTH)
+        if (mtuLength <= DataHeaderFlyweight.HEADER_LENGTH)
         {
             throw new ConfigurationException(
-                "mtuLength must be a > HEADER_LENGTH and <= MAX_UDP_PAYLOAD_LENGTH: " + mtuLength);
+                "mtuLength=" + mtuLength + " <= HEADER_LENGTH=" + DataHeaderFlyweight.HEADER_LENGTH);
+        }
+
+        if (mtuLength > MAX_UDP_PAYLOAD_LENGTH)
+        {
+            throw new ConfigurationException(
+                "mtuLength=" + mtuLength + " > MAX_UDP_PAYLOAD_LENGTH=" + MAX_UDP_PAYLOAD_LENGTH);
         }
 
         if ((mtuLength & (FrameDescriptor.FRAME_ALIGNMENT - 1)) != 0)
         {
-            throw new ConfigurationException("mtuLength must be a multiple of FRAME_ALIGNMENT: " + mtuLength);
+            throw new ConfigurationException(
+                "mtuLength=" + mtuLength + " is not a multiple of FRAME_ALIGNMENT=" + FrameDescriptor.FRAME_ALIGNMENT);
         }
     }
 
@@ -1747,55 +1771,38 @@ public class Configuration
      */
     public static void validateSocketBufferLengths(final MediaDriver.Context ctx)
     {
-        try (DatagramChannel probe = DatagramChannel.open())
+        if (ctx.osMaxSocketSndbufLength() < ctx.socketSndbufLength())
         {
-            final int defaultSoSndBuf = probe.getOption(StandardSocketOptions.SO_SNDBUF);
-
-            probe.setOption(StandardSocketOptions.SO_SNDBUF, Integer.MAX_VALUE);
-            final int maxSoSndBuf = probe.getOption(StandardSocketOptions.SO_SNDBUF);
-
-            if (maxSoSndBuf < ctx.socketSndbufLength())
-            {
-                System.err.format(
-                    "WARNING: Could not get desired SO_SNDBUF, adjust OS to allow %s: attempted=%d, actual=%d%n",
-                    SOCKET_SNDBUF_LENGTH_PROP_NAME,
-                    ctx.socketSndbufLength(),
-                    maxSoSndBuf);
-            }
-
-            probe.setOption(StandardSocketOptions.SO_RCVBUF, Integer.MAX_VALUE);
-            final int maxSoRcvBuf = probe.getOption(StandardSocketOptions.SO_RCVBUF);
-
-            if (maxSoRcvBuf < ctx.socketRcvbufLength())
-            {
-                System.err.format(
-                    "WARNING: Could not get desired SO_RCVBUF, adjust OS to allow %s: attempted=%d, actual=%d%n",
-                    SOCKET_RCVBUF_LENGTH_PROP_NAME,
-                    ctx.socketRcvbufLength(),
-                    maxSoRcvBuf);
-            }
-
-            final int soSndBuf = 0 == ctx.socketSndbufLength() ? defaultSoSndBuf : ctx.socketSndbufLength();
-
-            if (ctx.mtuLength() > soSndBuf)
-            {
-                throw new ConfigurationException(String.format(
-                    "MTU greater than socket SO_SNDBUF, adjust %s to match MTU: mtuLength=%d, SO_SNDBUF=%d",
-                    SOCKET_SNDBUF_LENGTH_PROP_NAME,
-                    ctx.mtuLength(),
-                    soSndBuf));
-            }
-
-            if (ctx.initialWindowLength() > maxSoRcvBuf)
-            {
-                throw new ConfigurationException("window length greater than socket SO_RCVBUF, increase '" +
-                    Configuration.INITIAL_WINDOW_LENGTH_PROP_NAME +
-                    "' to match window: windowLength=" + ctx.initialWindowLength() + ", SO_RCVBUF=" + maxSoRcvBuf);
-            }
+            System.err.println(
+                "WARNING: Could not set desired SO_SNDBUF, adjust OS to allow " + SOCKET_SNDBUF_LENGTH_PROP_NAME +
+                " attempted=" + ctx.socketSndbufLength() + ", actual=" + ctx.osMaxSocketSndbufLength());
         }
-        catch (final IOException ex)
+
+        if (ctx.osMaxSocketRcvbufLength() < ctx.socketRcvbufLength())
         {
-            throw new AeronException("probe socket: " + ex.toString(), ex);
+            System.err.println(
+                "WARNING: Could not set desired SO_RCVBUF, adjust OS to allow " + SOCKET_SNDBUF_LENGTH_PROP_NAME +
+                " attempted=" + ctx.socketSndbufLength() + ", actual=" + ctx.osMaxSocketSndbufLength());
+        }
+
+        final int soSndBuf = 0 == ctx.socketSndbufLength() ?
+            ctx.osDefaultSocketSndbufLength() : ctx.socketSndbufLength();
+
+        if (ctx.mtuLength() > soSndBuf)
+        {
+            throw new ConfigurationException(
+                "mtuLength=" + ctx.mtuLength() + " > SO_SNDBUF=" + soSndBuf +
+                ", increase " + SOCKET_SNDBUF_LENGTH_PROP_NAME + " to match MTU");
+        }
+
+        final int soRcvBuf = 0 == ctx.socketRcvbufLength() ?
+            ctx.osDefaultSocketRcvbufLength() : ctx.socketRcvbufLength();
+
+        if (ctx.initialWindowLength() > soRcvBuf)
+        {
+            throw new ConfigurationException(
+                "initialWindowLength=" + ctx.initialWindowLength() + " > SO_RCVBUF=" + soRcvBuf +
+                ", increase " + SOCKET_RCVBUF_LENGTH_PROP_NAME + " limits to match initialWindowLength");
         }
     }
 

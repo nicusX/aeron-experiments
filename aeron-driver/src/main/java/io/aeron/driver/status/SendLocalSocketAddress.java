@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,15 @@ public class SendLocalSocketAddress
      */
     public static final String NAME = "snd-local-sockaddr";
 
+    /**
+     * Allocate a counter to represent a local socket address associated with a send channel.
+     *
+     * @param tempBuffer      for building up the key and label.
+     * @param countersManager which will allocate the counter.
+     * @param registrationId  of the action the counter is associated with.
+     * @param channelStatusId with which the new counter is associated.
+     * @return the allocated counter.
+     */
     public static AtomicCounter allocate(
         final MutableDirectBuffer tempBuffer,
         final CountersManager countersManager,

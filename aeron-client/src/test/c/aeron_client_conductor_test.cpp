@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -452,7 +452,7 @@ TEST_F(ClientConductorTest, shouldErrorOnAddPublicationFromDriverError)
     doWork();
 
     ASSERT_EQ(aeron_async_add_publication_poll(&publication, async), -1);
-    ASSERT_EQ(EINVAL, aeron_errcode());
+    ASSERT_EQ(-AERON_ERROR_CODE_INVALID_CHANNEL, aeron_errcode());
 }
 
 TEST_F(ClientConductorTest, shouldErrorOnAddPublicationFromDriverTimeout)

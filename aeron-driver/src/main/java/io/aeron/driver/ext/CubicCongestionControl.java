@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,17 +60,17 @@ public class CubicCongestionControl implements CongestionControl
     private static final long SECOND_IN_NS = TimeUnit.SECONDS.toNanos(1);
     private static final long RTT_MAX_TIMEOUT_NS = SECOND_IN_NS;
     private static final int MAX_OUTSTANDING_RTT_MEASUREMENTS = 1;
+    private static final int INITCWND = 10;
 
     private static final double C = 0.4;
     private static final double B = 0.2;
 
-    private final int minWindow;
     private final int mtu;
     private final int maxCwnd;
-    private final ErrorHandler errorHandler;
+    private final int initialWindowLength;
 
-    private long lastLossTimestampNs;
     private long lastUpdateTimestampNs;
+    private long lastLossTimestampNs;
     private long lastRttTimestampNs = 0;
     private final long windowUpdateTimeoutNs;
     private long rttNs;
@@ -80,6 +80,7 @@ public class CubicCongestionControl implements CongestionControl
 
     private int outstandingRttMeasurements = 0;
 
+    private final ErrorHandler errorHandler;
     private final AtomicCounter rttIndicator;
     private final AtomicCounter windowIndicator;
 
@@ -111,46 +112,68 @@ public class CubicCongestionControl implements CongestionControl
         final MediaDriver.Context context,
         final CountersManager countersManager)
     {
-        mtu = senderMtuLength;
-        minWindow = senderMtuLength;
-        final int maxWindow = Math.min(termLength >> 1, context.initialWindowLength());
+        try
+        {
+            errorHandler = context.errorHandler();
+            mtu = senderMtuLength;
 
-        maxCwnd = maxWindow / mtu;
-        cwnd = 1;
-        w_max = maxCwnd; // initially set w_max to max window and act in the TCP and concave region initially
-        k = StrictMath.cbrt((double)w_max * B / C);
+            final int initialWindowLength = 0 != udpChannel.receiverWindowLength() ?
+                udpChannel.receiverWindowLength() : context.initialWindowLength();
+            final int maxWindow = Math.min(termLength >> 1, initialWindowLength);
 
-        // determine interval for adjustment based on heuristic of MTU, max window, and/or RTT estimate
-        rttNs = CubicCongestionControlConfiguration.INITIAL_RTT_NS;
-        windowUpdateTimeoutNs = rttNs;
+            maxCwnd = maxWindow / mtu;
+            cwnd = Math.min(INITCWND, maxCwnd);
+            this.initialWindowLength = cwnd * mtu;
+            w_max = maxCwnd; // initially set w_max to max window and act in the TCP and concave region initially
+            k = StrictMath.cbrt((double)w_max * B / C);
 
-        rttIndicator = PerImageIndicator.allocate(
-            context.tempBuffer(),
-            "rcv-cc-cubic-rtt",
-            countersManager,
-            registrationId,
-            sessionId,
-            streamId,
-            udpChannel.originalUriString());
+            // determine interval for adjustment based on heuristic of MTU, max window, and/or RTT estimate
+            rttNs = CubicCongestionControlConfiguration.INITIAL_RTT_NS;
+            windowUpdateTimeoutNs = rttNs;
 
-        windowIndicator = PerImageIndicator.allocate(
-            context.tempBuffer(),
-            "rcv-cc-cubic-wnd",
-            countersManager,
-            registrationId,
-            sessionId,
-            streamId,
-            udpChannel.originalUriString());
+            rttIndicator = PerImageIndicator.allocate(
+                context.tempBuffer(),
+                "rcv-cc-cubic-rtt",
+                countersManager,
+                registrationId,
+                sessionId,
+                streamId,
+                udpChannel.originalUriString());
 
-        rttIndicator.setOrdered(0);
-        windowIndicator.setOrdered(minWindow);
+            windowIndicator = PerImageIndicator.allocate(
+                context.tempBuffer(),
+                "rcv-cc-cubic-wnd",
+                countersManager,
+                registrationId,
+                sessionId,
+                streamId,
+                udpChannel.originalUriString());
 
-        lastLossTimestampNs = nanoClock.nanoTime();
-        lastUpdateTimestampNs = lastLossTimestampNs;
+            rttIndicator.setOrdered(0);
+            windowIndicator.setOrdered(this.initialWindowLength);
 
-        errorHandler = context.errorHandler();
+            lastLossTimestampNs = nanoClock.nanoTime();
+            lastUpdateTimestampNs = lastLossTimestampNs;
+        }
+        catch (final Throwable ex)
+        {
+            close();
+            throw ex;
+        }
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    public void close()
+    {
+        CloseHelper.close(errorHandler, rttIndicator);
+        CloseHelper.close(errorHandler, windowIndicator);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public boolean shouldMeasureRtt(final long nowNs)
     {
         return CubicCongestionControlConfiguration.MEASURE_RTT &&
@@ -159,12 +182,18 @@ public class CubicCongestionControl implements CongestionControl
                 ((lastRttTimestampNs + RTT_MEASUREMENT_TIMEOUT_NS) - nowNs < 0));
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onRttMeasurementSent(final long nowNs)
     {
         lastRttTimestampNs = nowNs;
         outstandingRttMeasurements++;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onRttMeasurement(final long nowNs, final long rttNs, final InetSocketAddress srcAddress)
     {
         outstandingRttMeasurements--;
@@ -173,6 +202,9 @@ public class CubicCongestionControl implements CongestionControl
         rttIndicator.setOrdered(rttNs);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long onTrackRebuild(
         final long nowNs,
         final long newConsumptionPosition,
@@ -222,14 +254,16 @@ public class CubicCongestionControl implements CongestionControl
         return packOutcome(window, forceStatusMessage);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int initialWindowLength()
     {
-        return minWindow;
+        return initialWindowLength;
     }
 
-    public void close()
+    int maxCongestionWindow()
     {
-        CloseHelper.close(errorHandler, rttIndicator);
-        CloseHelper.close(errorHandler, windowIndicator);
+        return maxCwnd;
     }
 }

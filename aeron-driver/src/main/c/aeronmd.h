@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -342,8 +342,7 @@ struct sockaddr_storage;
 
 typedef int (*aeron_congestion_control_strategy_supplier_func_t)(
     aeron_congestion_control_strategy_t **strategy,
-    size_t channel_length,
-    const char *channel,
+    aeron_udp_channel_t *channel,
     int32_t stream_id,
     int32_t session_id,
     int64_t registration_id,
@@ -760,6 +759,15 @@ const char *aeron_driver_context_get_name_resolver_init_args(aeron_driver_contex
 
 int aeron_driver_context_set_re_resolution_check_interval_ns(aeron_driver_context_t *context, uint64_t value);
 uint64_t aeron_driver_context_get_re_resolution_check_interval_ns(aeron_driver_context_t *context);
+
+/**
+ * Specify the duty cycle time threshold for the conductor.
+ */
+#define AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD_ENV_VAR "AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD"
+
+int64_t aeron_driver_context_set_conductor_cycle_threshold_ns(aeron_driver_context_t *context, uint64_t value);
+int64_t aeron_driver_context_get_conductor_cycle_threshold_ns(aeron_driver_context_t *context);
+
 
 /**
  * Set the list of filenames to dynamic libraries to load upon context init.

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -172,6 +172,9 @@ class ReplaySession implements Session, AutoCloseable
         connectDeadlineMs = epochClock.time() + connectTimeoutMs;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
         final CountedErrorHandler errorHandler = controlSession.archiveConductor().context().countedErrorHandler();
@@ -179,11 +182,17 @@ class ReplaySession implements Session, AutoCloseable
         CloseHelper.close(errorHandler, fileChannel);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long sessionId()
     {
         return sessionId;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int doWork()
     {
         int workCount = 0;
@@ -220,11 +229,17 @@ class ReplaySession implements Session, AutoCloseable
         return workCount;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void abort()
     {
         isAborted = true;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean isDone()
     {
         return state == State.DONE;
@@ -294,7 +309,7 @@ class ReplaySession implements Session, AutoCloseable
                 {
                     if (notHeaderAligned(fileChannel, replayBuffer, segmentOffset, termOffset, termId, streamId))
                     {
-                        onError(replayPosition + " position not aligned to data header");
+                        onError(replayPosition + " position not aligned to a data header");
                         return 0;
                     }
                 }

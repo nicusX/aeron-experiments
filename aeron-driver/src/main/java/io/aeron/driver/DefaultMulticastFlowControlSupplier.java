@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,9 @@ import static io.aeron.driver.Configuration.MULTICAST_FLOW_CONTROL_STRATEGY;
  */
 public class DefaultMulticastFlowControlSupplier implements FlowControlSupplier
 {
+    /**
+     * {@inheritDoc}
+     */
     public FlowControl newInstance(final UdpChannel udpChannel, final int streamId, final long registrationId)
     {
         final String fcStr = udpChannel.channelUri().get(CommonContext.FLOW_CONTROL_PARAM_NAME);
@@ -79,6 +82,9 @@ public class DefaultMulticastFlowControlSupplier implements FlowControlSupplier
         return flowControl;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "DefaultMulticastFlowControlSupplier{flowControlClass=" +

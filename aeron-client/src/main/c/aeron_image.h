@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -95,16 +95,17 @@ inline int aeron_image_validate_position(aeron_image_t *image, int64_t position)
 
     if (position < current_position ||  position > limit_position)
     {
-        errno = EINVAL;
-        aeron_set_err(EINVAL, "%s: %" PRId64 " position out of range %" PRId64 "-%" PRId64,
-            strerror(EINVAL), position, current_position, limit_position);
+        AERON_SET_ERR(
+            EINVAL, "%" PRId64 " position out of range %" PRId64 "-%" PRId64,
+            position,
+            current_position,
+            limit_position);
         return -1;
     }
 
     if (0 != (position & (AERON_LOGBUFFER_FRAME_ALIGNMENT - 1)))
     {
-        errno = EINVAL;
-        aeron_set_err(EINVAL, "%s: position not aligned to FRAME_ALIGNMENT", strerror(EINVAL));
+        AERON_SET_ERR(EINVAL, "position (%" PRId64 ") not aligned to FRAME_ALIGNMENT", position);
         return -1;
     }
 

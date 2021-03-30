@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -454,9 +454,12 @@ public final class ClusterMember
     }
 
     /**
-     * The address:port endpoint for this cluster member to which a stream is replayed to for leader catchup.
+     * The address:port endpoint for this cluster member to which a stream is replayed for catchup to the leader.
+     * <p>
+     * It is recommended a port of 0 is used so it is system allocated to avoid potential clashes.
      *
-     * @return the address:port endpoint for this cluster member to which a stream is replayed to for leader catchup.
+     * @return the address:port endpoint for this cluster member to which a stream is replayed for catchup to the
+     * leader.
      */
     public String catchupEndpoint()
     {
@@ -833,7 +836,7 @@ public final class ClusterMember
     }
 
     /**
-     * Has the members of the cluster the voted reached the provided position in their log.
+     * Have the members of the cluster the voted reached the provided position in their log.
      *
      * @param clusterMembers   to check.
      * @param position         to compare the {@link #logPosition()} against.
@@ -852,6 +855,30 @@ public final class ClusterMember
         }
 
         return true;
+    }
+
+    /**
+     * Have a quorum of members of the cluster reached the provided position in their log.
+     *
+     * @param clusterMembers   to check.
+     * @param position         to compare the {@link #logPosition()} against.
+     * @param leadershipTermId expected of the members.
+     * @return true if a quorum of members have reached this position otherwise false.
+     */
+    public static boolean haveQuorumReachedPosition(
+        final ClusterMember[] clusterMembers, final long position, final long leadershipTermId)
+    {
+        int votes = 0;
+
+        for (final ClusterMember member : clusterMembers)
+        {
+            if (member.leadershipTermId == leadershipTermId && member.logPosition >= position)
+            {
+                ++votes;
+            }
+        }
+
+        return votes >= ClusterMember.quorumThreshold(clusterMembers.length);
     }
 
     /**
@@ -1264,6 +1291,9 @@ public final class ClusterMember
         return builder.toString();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "ClusterMember{" +

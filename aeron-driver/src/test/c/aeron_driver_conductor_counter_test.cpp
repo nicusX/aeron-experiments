@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,15 +25,11 @@ using testing::_;
 class DriverConductorCounterTest : public DriverConductorTest, public testing::Test
 {
 public:
-    DriverConductorCounterTest()
-    {
-        memset(m_key, 0, COUNTER_KEY_LENGTH);
-    }
 
 protected:
 
     std::string m_label = COUNTER_LABEL;
-    uint8_t m_key[COUNTER_KEY_LENGTH];
+    uint8_t m_key[COUNTER_KEY_LENGTH] = { 0 };
     size_t m_key_length = COUNTER_KEY_LENGTH;
 };
 
@@ -171,4 +167,35 @@ TEST_F(DriverConductorCounterTest, shouldNotRemoveCounterOnClientKeepalive)
     EXPECT_CALL(m_mockCallbacks, onCounter(_, _, _, _, _, _)).Times(testing::AnyNumber());
     EXPECT_CALL(m_mockCallbacks, onCounter(counter_id, _, _, _, _, _)).Times(1);
     readCounters(mock_counter_handler);
+}
+
+TEST_F(DriverConductorCounterTest, shouldIncrementCounterOnConductorThresholdExceeded)
+{
+    int64_t *maxCycleTimeCounter = aeron_counters_manager_addr(
+        &m_conductor.m_conductor.counters_manager, AERON_SYSTEM_COUNTER_CONDUCTOR_MAX_CYCLE_TIME);
+    int64_t *thresholdExceededCounter = aeron_counters_manager_addr(
+        &m_conductor.m_conductor.counters_manager, AERON_SYSTEM_COUNTER_CONDUCTOR_CYCLE_TIME_THRESHOLD_EXCEEDED);
+
+    nano_time = 0;
+    doWork();
+    nano_time = INT64_C(750) * 1000 * 1000;
+    doWork();
+    nano_time = INT64_C(1750) * 1000 * 1000;
+    doWork();
+    nano_time = INT64_C(2250) * 1000 * 1000;
+    doWork();
+    nano_time = INT64_C(2850) * 1000 * 1000;
+    doWork();
+    nano_time = INT64_C(3451) * 1000 * 1000;
+    doWork();
+
+    int64_t maxCycleTime;
+    AERON_GET_VOLATILE(maxCycleTime, *maxCycleTimeCounter);
+
+    ASSERT_EQ(1000 * 1000 * 1000, maxCycleTime);
+
+    int64_t thresholdExceeded;
+    AERON_GET_VOLATILE(thresholdExceeded, *thresholdExceededCounter);
+
+    ASSERT_EQ(3, thresholdExceeded);
 }

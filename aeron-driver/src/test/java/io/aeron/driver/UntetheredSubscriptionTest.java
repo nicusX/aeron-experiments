@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,8 +79,8 @@ public class UntetheredSubscriptionTest
         final SubscriptionLink tetheredLink = newLink(1, true);
         final SubscriptionLink untetheredLink = newLink(1, false);
 
-        ipcPublication.addSubscriber(tetheredLink, tetheredPosition);
-        ipcPublication.addSubscriber(untetheredLink, untetheredPosition);
+        ipcPublication.addSubscriber(tetheredLink, tetheredPosition, ctx.cachedNanoClock().nanoTime());
+        ipcPublication.addSubscriber(untetheredLink, untetheredPosition, ctx.cachedNanoClock().nanoTime());
 
         final DriverConductor conductor = mock(DriverConductor.class);
         ipcPublication.updatePublisherLimit();

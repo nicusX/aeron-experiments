@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,33 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package io.aeron.test;
 
-#include "ArchiveTestUtil.h"
+import org.junit.jupiter.api.Tag;
 
-#ifndef _WIN32
-#include <sys/stat.h>
-#include <fcntl.h>
-#else
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif // !NOMINMAX
-#include <Windows.h>
-#endif
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-namespace aeron { namespace test {
-
-#ifndef _WIN32
-bool fileExists(const char *path)
+@Target({ ElementType.TYPE, ElementType.METHOD })
+@Retention(RetentionPolicy.RUNTIME)
+@Tag("topology")
+public @interface TopologyTest
 {
-    struct stat statInfo = {};
-    return ::stat(path, &statInfo) == 0;
 }
-#else
-bool fileExists(const char *path)
-{
-    DWORD dwAttrib = GetFileAttributes(path);
-    return dwAttrib != INVALID_FILE_ATTRIBUTES;
-}
-#endif
-
-}}

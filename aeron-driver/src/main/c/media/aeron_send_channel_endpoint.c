@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,7 +60,7 @@ int aeron_send_channel_endpoint_create(
             aeron_udp_destination_tracker_init(
                 _endpoint->destination_tracker,
                 _endpoint->data_paths,
-                context->cached_clock,
+                context->sender_cached_clock,
                 channel->is_manual_control_mode,
                 AERON_UDP_DESTINATION_TRACKER_DESTINATION_TIMEOUT_NS) < 0)
         {
@@ -75,6 +75,10 @@ int aeron_send_channel_endpoint_create(
     _endpoint->conductor_fields.managed_resource.clientd = _endpoint;
     _endpoint->conductor_fields.managed_resource.registration_id = -1;
     _endpoint->conductor_fields.status = AERON_SEND_CHANNEL_ENDPOINT_STATUS_ACTIVE;
+    _endpoint->conductor_fields.socket_sndbuf = 0 != channel->socket_sndbuf_length ?
+        channel->socket_sndbuf_length : context->socket_sndbuf;
+    _endpoint->conductor_fields.socket_rcvbuf = 0 != channel->socket_rcvbuf_length ?
+        channel->socket_rcvbuf_length : context->socket_rcvbuf;
     _endpoint->transport.fd = -1;
     _endpoint->channel_status.counter_id = -1;
     _endpoint->local_sockaddr_indicator.counter_id = -1;
@@ -88,12 +92,12 @@ int aeron_send_channel_endpoint_create(
         channel->is_multicast ? &channel->local_control : &channel->remote_control,
         channel->interface_index,
         0 != channel->multicast_ttl ? channel->multicast_ttl : context->multicast_ttl,
-        context->socket_rcvbuf,
-        context->socket_sndbuf,
+        _endpoint->conductor_fields.socket_rcvbuf,
+        _endpoint->conductor_fields.socket_sndbuf,
         context,
         AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_SENDER) < 0)
     {
-        aeron_set_err(aeron_errcode(), "%s: uri=%s", aeron_errmsg(), channel->original_uri);
+        AERON_APPEND_ERR("uri=%s", channel->original_uri);
         aeron_send_channel_endpoint_delete(counters_manager, _endpoint);
         return -1;
     }
@@ -156,7 +160,7 @@ int aeron_send_channel_endpoint_create(
         _endpoint->local_sockaddr_indicator.value_addr, AERON_COUNTER_CHANNEL_ENDPOINT_STATUS_ACTIVE);
 
     _endpoint->sender_proxy = context->sender_proxy;
-    _endpoint->cached_clock = context->cached_clock;
+    _endpoint->cached_clock = context->sender_cached_clock;
     _endpoint->time_of_last_sm_ns = aeron_clock_cached_nano_time(_endpoint->cached_clock);
     memcpy(&_endpoint->current_data_addr, &channel->remote_data, sizeof(_endpoint->current_data_addr));
 
@@ -264,7 +268,7 @@ int aeron_send_channel_endpoint_add_publication(
     int result = aeron_int64_to_ptr_hash_map_put(&endpoint->publication_dispatch_map, key_value, publication);
     if (result < 0)
     {
-        aeron_set_err_from_last_err_code("send_channel_endpoint_add(hash_map)");
+        AERON_APPEND_ERR("%s", "Failed to add publication to publication_dispatch_map");
     }
 
     return result;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -303,6 +303,21 @@ public class CommonContext implements Cloneable
      * Parameter name for Publication URI param to indicate whether spy subscriptions should simulate a connection.
      */
     public static final String SPIES_SIMULATE_CONNECTION_PARAM_NAME = "ssc";
+
+    /**
+     * Parameter name for the underlying OS socket send buffer length.
+     */
+    public static final String SOCKET_SNDBUF_PARAM_NAME = "so-sndbuf";
+
+    /**
+     * Parameter name for the underlying OS socket receive buffer length.
+     */
+    public static final String SOCKET_RCVBUF_PARAM_NAME = "so-rcvbuf";
+
+    /**
+     * Parameter name for the congestion control's initial receiver window length.
+     */
+    public static final String RECEIVER_WINDOW_LENGTH_PARAM_NAME = "rcv-wnd";
 
     /**
      * Using an integer because there is no support for boolean. 1 is concluded, 0 is not concluded.

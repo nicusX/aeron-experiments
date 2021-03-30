@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -458,12 +458,32 @@ public class UdpChannelTest
             UdpChannel.parse("aeron:udp?endpoint=127.0.0.1:0|tags=1001").canonicalForm());
     }
 
+    @Test
+    void shouldParseSocketRcvAndSndBufSizes()
+    {
+        final UdpChannel udpChannelWithBufferSizes = UdpChannel.parse(
+            "aeron:udp?endpoint=127.0.0.1:9999|so-sndbuf=4096|so-rcvbuf=8192");
+        assertEquals(4096, udpChannelWithBufferSizes.socketSndbufLength());
+        assertEquals(8192, udpChannelWithBufferSizes.socketRcvbufLength());
+
+        final UdpChannel udpChannelWithoutBufferSizes = UdpChannel.parse("aeron:udp?endpoint=127.0.0.1:9999");
+        assertEquals(0, udpChannelWithoutBufferSizes.socketRcvbufLength());
+        assertEquals(0, udpChannelWithoutBufferSizes.socketSndbufLength());
+    }
+
+    @Test
+    void shouldParseReceiverWindow()
+    {
+        final UdpChannel udpChannelWithBufferSizes = UdpChannel.parse("aeron:udp?endpoint=127.0.0.1:9999|rcv-wnd=8192");
+        assertEquals(8192, udpChannelWithBufferSizes.receiverWindowLength());
+    }
+
     @ParameterizedTest
     @CsvSource({
         "NAME_ENDPOINT,192.168.1.1,,,UDP-127.0.0.1:0-NAME_ENDPOINT",
         "localhost:41024,127.0.0.1,,,UDP-127.0.0.1:0-localhost:41024",
         "[fe80::5246:5dff:fe73:df06]:40456,[fe80::5246:5dff:fe73:df06],,," +
-        "UDP-127.0.0.1:0-[fe80::5246:5dff:fe73:df06]:40456",
+            "UDP-127.0.0.1:0-[fe80::5246:5dff:fe73:df06]:40456",
         "NAME_ENDPOINT,224.0.1.1,,,UDP-127.0.0.1:0-224.0.1.1:40124",
         "NAME_ENDPOINT,192.168.1.1,NAME_CONTROL,192.168.1.2,UDP-NAME_CONTROL-NAME_ENDPOINT",
         "NAME_ENDPOINT,224.0.1.1,NAME_CONTROL,127.0.0.1,UDP-127.0.0.1:0-224.0.1.1:40124",

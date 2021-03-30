@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -57,7 +57,7 @@ protected:
 
     void SetUp() override
     {
-        aeron_set_err(0, "No error");
+        aeron_err_clear();
     }
 
     void TearDown() override
@@ -229,7 +229,7 @@ TEST_F(NameResolverTest, shouldUseStaticLookupTable)
 
     initResolver(&m_a, AERON_NAME_RESOLVER_CSV_TABLE, config_param, 0);
 
-    const char *resolved_name;
+    const char *resolved_name = nullptr;
 
     ASSERT_EQ(1, m_a.resolver.lookup_func(&m_a.resolver, NAME_0, AERON_UDP_CHANNEL_ENDPOINT_KEY, true, &resolved_name));
     ASSERT_STREQ(HOST_0A, resolved_name);
@@ -325,6 +325,9 @@ TEST_F(NameResolverTest, shouldSeeNeighborFromGossip)
     while (2 > readNeighborCounter(&m_a) || 2 > readNeighborCounter(&m_b) || 2 > readNeighborCounter(&m_c))
     {
         timestamp_ms += 1000;
+        aeron_clock_update_cached_epoch_time(m_a.context->cached_clock, timestamp_ms);
+        aeron_clock_update_cached_epoch_time(m_b.context->cached_clock, timestamp_ms);
+        aeron_clock_update_cached_epoch_time(m_c.context->cached_clock, timestamp_ms);
 
         int work_done;
         do
@@ -341,6 +344,10 @@ TEST_F(NameResolverTest, shouldSeeNeighborFromGossip)
 
             aeron_micro_sleep(10000);
             timestamp_ms += 10;
+
+            aeron_clock_update_cached_epoch_time(m_a.context->cached_clock, timestamp_ms);
+            aeron_clock_update_cached_epoch_time(m_b.context->cached_clock, timestamp_ms);
+            aeron_clock_update_cached_epoch_time(m_c.context->cached_clock, timestamp_ms);
         }
         while (0 != work_done);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,10 @@
  */
 package io.aeron.archive;
 
+import io.aeron.Aeron;
 import io.aeron.Image;
 import io.aeron.ImageFragmentAssembler;
+import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.client.ArchiveException;
 import io.aeron.archive.codecs.*;
 import io.aeron.exceptions.AeronException;
@@ -45,25 +47,40 @@ class ControlSessionDemuxer implements Session, FragmentHandler
         this.conductor = conductor;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long sessionId()
     {
         return image.correlationId();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void abort()
     {
         isActive = false;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean isDone()
     {
         return !isActive;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int doWork()
     {
         int workCount = 0;
@@ -85,6 +102,9 @@ class ControlSessionDemuxer implements Session, FragmentHandler
         return workCount;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @SuppressWarnings("MethodLength")
     public void onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
@@ -474,9 +494,13 @@ class ControlSessionDemuxer implements Session, FragmentHandler
                     correlationId,
                     decoder.srcRecordingId(),
                     decoder.dstRecordingId(),
+                    AeronArchive.NULL_POSITION,
+                    Aeron.NULL_VALUE,
+                    Aeron.NULL_VALUE,
                     decoder.srcControlStreamId(),
                     decoder.srcControlChannel(),
-                    decoder.liveDestination());
+                    decoder.liveDestination(),
+                    "");
                 break;
             }
 
@@ -694,15 +718,17 @@ class ControlSessionDemuxer implements Session, FragmentHandler
                 final long controlSessionId = decoder.controlSessionId();
                 final ControlSession controlSession = getControlSession(controlSessionId, correlationId);
 
-                controlSession.onReplicateTagged(
+                controlSession.onReplicate(
                     correlationId,
                     decoder.srcRecordingId(),
                     decoder.dstRecordingId(),
+                    AeronArchive.NULL_POSITION,
                     decoder.channelTagId(),
                     decoder.subscriptionTagId(),
                     decoder.srcControlStreamId(),
                     decoder.srcControlChannel(),
-                    decoder.liveDestination());
+                    decoder.liveDestination(),
+                    "");
                 break;
             }
 
@@ -765,6 +791,33 @@ class ControlSessionDemuxer implements Session, FragmentHandler
                 final ControlSession controlSession = getControlSession(controlSessionId, correlationId);
 
                 controlSession.onStopRecordingByIdentity(correlationId, decoder.recordingId());
+                break;
+            }
+
+            case ReplicateRequest2Decoder.TEMPLATE_ID:
+            {
+                final ReplicateRequest2Decoder decoder = decoders.replicateRequest2;
+                decoder.wrap(
+                    buffer,
+                    offset + MessageHeaderDecoder.ENCODED_LENGTH,
+                    headerDecoder.blockLength(),
+                    headerDecoder.version());
+
+                final long correlationId = decoder.correlationId();
+                final long controlSessionId = decoder.controlSessionId();
+                final ControlSession controlSession = getControlSession(controlSessionId, correlationId);
+
+                controlSession.onReplicate(
+                    correlationId,
+                    decoder.srcRecordingId(),
+                    decoder.dstRecordingId(),
+                    decoder.stopPosition(),
+                    decoder.channelTagId(),
+                    decoder.subscriptionTagId(),
+                    decoder.srcControlStreamId(),
+                    decoder.srcControlChannel(),
+                    decoder.liveDestination(),
+                    decoder.replicationChannel());
                 break;
             }
 

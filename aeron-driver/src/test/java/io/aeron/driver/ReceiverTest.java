@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ public class ReceiverTest
 {
     private static final int TERM_BUFFER_LENGTH = TERM_MIN_LENGTH;
     private static final int POSITION_BITS_TO_SHIFT = LogBufferDescriptor.positionBitsToShift(TERM_BUFFER_LENGTH);
-    private static final String URI = "aeron:udp?endpoint=localhost:45678";
+    private static final String URI = "aeron:udp?endpoint=localhost:4005";
     private static final UdpChannel UDP_CHANNEL = UdpChannel.parse(URI);
     private static final long CORRELATION_ID = 20;
     private static final int STREAM_ID = 1010;
@@ -114,6 +114,8 @@ public class ReceiverTest
         .nanoClock(nanoClock)
         .epochClock(epochClock)
         .cachedNanoClock(nanoClock)
+        .senderCachedNanoClock(nanoClock)
+        .receiverCachedNanoClock(nanoClock)
         .lossReport(mockLossReport);
 
     private ReceiveChannelEndpoint receiveChannelEndpoint;
@@ -146,6 +148,8 @@ public class ReceiverTest
             .receiverCommandQueue(new OneToOneConcurrentArrayQueue<>(Configuration.CMD_QUEUE_CAPACITY))
             .nanoClock(nanoClock)
             .cachedNanoClock(nanoClock)
+            .senderCachedNanoClock(nanoClock)
+            .receiverCachedNanoClock(nanoClock)
             .receiveChannelEndpointThreadLocals(new ReceiveChannelEndpointThreadLocals())
             .driverConductorProxy(driverConductorProxy);
 
@@ -164,7 +168,9 @@ public class ReceiverTest
         final MediaDriver.Context receiverChannelContext = new MediaDriver.Context()
             .receiveChannelEndpointThreadLocals(new ReceiveChannelEndpointThreadLocals())
             .systemCounters(mockSystemCounters)
-            .cachedNanoClock(nanoClock);
+            .cachedNanoClock(nanoClock)
+            .senderCachedNanoClock(nanoClock)
+            .receiverCachedNanoClock(nanoClock);
 
         receiveChannelEndpoint = new ReceiveChannelEndpoint(
             UdpChannel.parse(URI),
@@ -220,10 +226,8 @@ public class ReceiverTest
 
         assertThat(messagesRead, is(1));
 
+        nanoClock.advance(STATUS_MESSAGE_TIMEOUT * 2);
         receiver.doWork();
-
-        image.trackRebuild(nanoClock.nanoTime() + (2 * STATUS_MESSAGE_TIMEOUT), STATUS_MESSAGE_TIMEOUT);
-        image.sendPendingStatusMessage();
 
         final ByteBuffer rcvBuffer = ByteBuffer.allocateDirect(256);
         InetSocketAddress rcvAddress;
@@ -529,7 +533,7 @@ public class ReceiverTest
         final PublicationImage mockImage = mock(PublicationImage.class);
         when(mockImage.sessionId()).thenReturn(SESSION_ID);
         when(mockImage.streamId()).thenReturn(STREAM_ID);
-        when(mockImage.hasActivityAndNotEndOfStream(anyLong())).thenReturn(false);
+        when(mockImage.isConnected(anyLong())).thenReturn(false);
 
         receiver.onNewPublicationImage(receiveChannelEndpoint, mockImage);
         receiver.doWork();
@@ -551,7 +555,7 @@ public class ReceiverTest
         final PublicationImage mockImage = mock(PublicationImage.class);
         when(mockImage.sessionId()).thenReturn(SESSION_ID);
         when(mockImage.streamId()).thenReturn(STREAM_ID);
-        when(mockImage.hasActivityAndNotEndOfStream(anyLong())).thenReturn(true);
+        when(mockImage.isConnected(anyLong())).thenReturn(true);
 
         receiver.onNewPublicationImage(receiveChannelEndpoint, mockImage);
         receiver.onRemoveSubscription(receiveChannelEndpoint, STREAM_ID);

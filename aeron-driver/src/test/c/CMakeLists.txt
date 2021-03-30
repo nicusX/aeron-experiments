@@ -1,5 +1,5 @@
 #
-# Copyright 2014-2020 Real Logic Limited.
+# Copyright 2014-2021 Real Logic Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@ aeron_driver_test(driver_conductor_pub_sub_test aeron_driver_conductor_pub_sub_t
 aeron_driver_test(driver_conductor_spy_test aeron_driver_conductor_spy_test.cpp)
 aeron_driver_test(driver_conductor_counter_test aeron_driver_conductor_counter_test.cpp)
 aeron_driver_test(driver_conductor_clock_test aeron_driver_conductor_clock_test.cpp)
-aeron_driver_test(uri_driver_test aeron_driver_uri_test.cpp)
+aeron_driver_test(driver_uri_test aeron_driver_uri_test.cpp)
 aeron_driver_test(udp_channel_test aeron_udp_channel_test.cpp)
 aeron_driver_test(term_scanner_test aeron_term_scanner_test.cpp)
 aeron_driver_test(loss_detector_test aeron_loss_detector_test.cpp)
@@ -80,8 +80,14 @@ aeron_driver_test(c_local_addresses_test aeron_c_local_addresses_test.cpp)
 set_tests_properties(c_local_addresses_test PROPERTIES TIMEOUT 60)
 set_tests_properties(c_local_addresses_test PROPERTIES RUN_SERIAL TRUE)
 
+aeron_driver_test(c_errors_test aeron_errors_test.cpp)
+set_tests_properties(c_errors_test PROPERTIES TIMEOUT 60)
+set_tests_properties(c_errors_test PROPERTIES RUN_SERIAL TRUE)
+
 aeron_driver_test(c_cnc_test aeron_c_cnc_test.cpp)
 set_tests_properties(c_cnc_test PROPERTIES TIMEOUT 60)
 set_tests_properties(c_cnc_test PROPERTIES RUN_SERIAL TRUE)
 
 aeron_driver_test(congestion_control_test aeron_congestion_control_test.cpp)
+
+aeron_driver_test(network_publication_test aeron_network_publication_test.cpp)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package io.aeron.archive.client;
 
+import io.aeron.Aeron;
 import io.aeron.ChannelUriStringBuilder;
 import io.aeron.Publication;
 import io.aeron.Subscription;
@@ -29,7 +30,7 @@ import static io.aeron.archive.client.AeronArchive.Configuration.MESSAGE_TIMEOUT
 /**
  * Proxy class for encapsulating encoding and sending of control protocol messages to an archive.
  */
-public class ArchiveProxy
+public final class ArchiveProxy
 {
     /**
      * Default number of retry attempts to be made when offering requests.
@@ -65,7 +66,7 @@ public class ArchiveProxy
     private ListRecordingSubscriptionsRequestEncoder listRecordingSubscriptionsRequest;
     private BoundedReplayRequestEncoder boundedReplayRequest;
     private StopAllReplaysRequestEncoder stopAllReplaysRequest;
-    private ReplicateRequestEncoder replicateRequest;
+    private ReplicateRequest2Encoder replicateRequest;
     private StopReplicationRequestEncoder stopReplicationRequest;
     private StartPositionRequestEncoder startPositionRequest;
     private DetachSegmentsRequestEncoder detachSegmentsRequest;
@@ -73,7 +74,6 @@ public class ArchiveProxy
     private PurgeSegmentsRequestEncoder purgeSegmentsRequest;
     private AttachSegmentsRequestEncoder attachSegmentsRequest;
     private MigrateSegmentsRequestEncoder migrateSegmentsRequest;
-    private TaggedReplicateRequestEncoder taggedReplicateRequest;
 
     /**
      * Create a proxy with a {@link Publication} for sending control message requests.
@@ -951,7 +951,7 @@ public class ArchiveProxy
     {
         if (null == replicateRequest)
         {
-            replicateRequest = new ReplicateRequestEncoder();
+            replicateRequest = new ReplicateRequest2Encoder();
         }
 
         replicateRequest
@@ -960,9 +960,71 @@ public class ArchiveProxy
             .correlationId(correlationId)
             .srcRecordingId(srcRecordingId)
             .dstRecordingId(dstRecordingId)
+            .stopPosition(AeronArchive.NULL_POSITION)
+            .channelTagId(Aeron.NULL_VALUE)
+            .subscriptionTagId(Aeron.NULL_VALUE)
             .srcControlStreamId(srcControlStreamId)
             .srcControlChannel(srcControlChannel)
-            .liveDestination(liveDestination);
+            .liveDestination(liveDestination)
+            .replicationChannel(null);
+
+        return offer(replicateRequest.encodedLength());
+    }
+
+    /**
+     * Replicate a recording from a source archive to a destination which can be considered a backup for a primary
+     * archive. The source recording will be replayed via the provided replay channel and use the original stream id.
+     * If the destination recording id is {@link io.aeron.Aeron#NULL_VALUE} then a new destination recording is created,
+     * otherwise the provided destination recording id will be extended. The details of the source recording
+     * descriptor will be replicated.
+     * <p>
+     * For a source recording that is still active the replay can merge with the live stream and then follow it
+     * directly and no longer require the replay from the source. This would require a multicast live destination.
+     * <p>
+     * Errors will be reported asynchronously and can be checked for with {@link AeronArchive#pollForErrorResponse()}
+     * or {@link AeronArchive#checkForErrorResponse()}.
+     *
+     * @param srcRecordingId     recording id which must exist in the source archive.
+     * @param dstRecordingId     recording to extend in the destination, otherwise {@link io.aeron.Aeron#NULL_VALUE}.
+     * @param stopPosition       position to stop the replication. {@link AeronArchive#NULL_POSITION} to stop at end
+     *                           of current recording.
+     * @param srcControlStreamId remote control stream id for the source archive to instruct the replay on.
+     * @param srcControlChannel  remote control channel for the source archive to instruct the replay on.
+     * @param liveDestination    destination for the live stream if merge is required. Empty or null for no merge.
+     * @param replicationChannel channel over which the replication will occur. Empty or null for default channel.
+     * @param correlationId      for this request.
+     * @param controlSessionId   for this request.
+     * @return true if successfully offered otherwise false.
+     */
+    public boolean replicate(
+        final long srcRecordingId,
+        final long dstRecordingId,
+        final long stopPosition,
+        final int srcControlStreamId,
+        final String srcControlChannel,
+        final String liveDestination,
+        final String replicationChannel,
+        final long correlationId,
+        final long controlSessionId)
+    {
+        if (null == replicateRequest)
+        {
+            replicateRequest = new ReplicateRequest2Encoder();
+        }
+
+        replicateRequest
+            .wrapAndApplyHeader(buffer, 0, messageHeader)
+            .controlSessionId(controlSessionId)
+            .correlationId(correlationId)
+            .srcRecordingId(srcRecordingId)
+            .dstRecordingId(dstRecordingId)
+            .stopPosition(stopPosition)
+            .channelTagId(Aeron.NULL_VALUE)
+            .subscriptionTagId(Aeron.NULL_VALUE)
+            .srcControlStreamId(srcControlStreamId)
+            .srcControlChannel(srcControlChannel)
+            .liveDestination(liveDestination)
+            .replicationChannel(replicationChannel);
 
         return offer(replicateRequest.encodedLength());
     }
@@ -1002,24 +1064,25 @@ public class ArchiveProxy
         final long correlationId,
         final long controlSessionId)
     {
-        if (null == taggedReplicateRequest)
+        if (null == replicateRequest)
         {
-            taggedReplicateRequest = new TaggedReplicateRequestEncoder();
+            replicateRequest = new ReplicateRequest2Encoder();
         }
 
-        taggedReplicateRequest
+        replicateRequest
             .wrapAndApplyHeader(buffer, 0, messageHeader)
             .controlSessionId(controlSessionId)
             .correlationId(correlationId)
             .srcRecordingId(srcRecordingId)
             .dstRecordingId(dstRecordingId)
+            .stopPosition(AeronArchive.NULL_POSITION)
             .channelTagId(channelTagId)
             .subscriptionTagId(subscriptionTagId)
             .srcControlStreamId(srcControlStreamId)
             .srcControlChannel(srcControlChannel)
             .liveDestination(liveDestination);
 
-        return offer(taggedReplicateRequest.encodedLength());
+        return offer(replicateRequest.encodedLength());
     }
 
     /**

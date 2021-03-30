@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,12 +24,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <inttypes.h>
 
 #if defined(AERON_COMPILER_MSVC)
 #include <windows.h>
 #endif
 
 #include "util/aeron_bitutil.h"
+#include "util/aeron_error.h"
 #include "aeron_alloc.h"
 
 int aeron_alloc_no_err(void **ptr, size_t size)
@@ -52,10 +54,7 @@ int aeron_alloc(void **ptr, size_t size)
 
     if (NULL == *ptr)
     {
-        errno = ENOMEM;
-#if defined(AERON_COMPILER_MSVC)
-        SetLastError(ERROR_OUTOFMEMORY);
-#endif
+        AERON_SET_ERR(ENOMEM, "Failed to allocate %" PRIu64 " bytes", (uint64_t)size);
         return -1;
     }
 

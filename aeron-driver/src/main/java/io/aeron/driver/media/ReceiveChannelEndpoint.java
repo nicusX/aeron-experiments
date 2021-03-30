@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,12 +20,12 @@ import io.aeron.ErrorCode;
 import io.aeron.driver.DataPacketDispatcher;
 import io.aeron.driver.DriverConductorProxy;
 import io.aeron.driver.MediaDriver;
-import io.aeron.driver.PublicationImage;
 import io.aeron.exceptions.AeronException;
 import io.aeron.exceptions.ControlProtocolException;
 import io.aeron.protocol.*;
-import io.aeron.status.LocalSocketAddressStatus;
 import io.aeron.status.ChannelEndpointStatus;
+import io.aeron.status.LocalSocketAddressStatus;
+import org.agrona.collections.ArrayUtil;
 import org.agrona.collections.Hashing;
 import org.agrona.collections.Int2IntCounterMap;
 import org.agrona.collections.Long2LongCounterMap;
@@ -86,6 +86,14 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
     private InetSocketAddress currentControlAddress;
     private AtomicCounter localSocketAddressIndicator;
 
+    /**
+     * Construct the receiver end for data streams.
+     *
+     * @param udpChannel      configuration for the media.
+     * @param dispatcher      for forwarding packets.
+     * @param statusIndicator to indicate the status of the channel endpoint.
+     * @param context         for configuration.
+     */
     public ReceiveChannelEndpoint(
         final UdpChannel udpChannel,
         final DataPacketDispatcher dispatcher,
@@ -101,15 +109,15 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         possibleTtlAsymmetry = context.systemCounters().get(POSSIBLE_TTL_ASYMMETRY);
 
         final ReceiveChannelEndpointThreadLocals threadLocals = context.receiveChannelEndpointThreadLocals();
-        smBuffer = threadLocals.smBuffer();
+        smBuffer = threadLocals.statusMessageBuffer();
         statusMessageFlyweight = threadLocals.statusMessageFlyweight();
         nakBuffer = threadLocals.nakBuffer();
         nakFlyweight = threadLocals.nakFlyweight();
         rttMeasurementBuffer = threadLocals.rttMeasurementBuffer();
         rttMeasurementFlyweight = threadLocals.rttMeasurementFlyweight();
-        cachedNanoClock = context.cachedNanoClock();
+        cachedNanoClock = context.receiverCachedNanoClock();
         timeOfLastActivityNs = cachedNanoClock.nanoTime();
-        receiverId = threadLocals.receiverId();
+        receiverId = threadLocals.nextReceiverId();
 
         final String groupTagValue = udpChannel.channelUri().get(CommonContext.GROUP_TAG_PARAM_NAME);
         groupTag = null == groupTagValue ? context.receiverGroupTag() : Long.valueOf(groupTagValue);
@@ -163,21 +171,29 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         return bytesSent;
     }
 
+    /**
+     * The original URI String used when a subscription was added.
+     *
+     * @return the original URI String used when a subscription was added.
+     */
     public String originalUriString()
     {
         return udpChannel().originalUriString();
     }
 
+    /**
+     * Counter which indicates the status of the channel.
+     *
+     * @return counter which indicates the status of the channel.
+     */
     public AtomicCounter statusIndicatorCounter()
     {
         return statusIndicator;
     }
 
-    public int statusIndicatorCounterId()
-    {
-        return statusIndicator.id();
-    }
-
+    /**
+     * Indicate that the channel as active after successfully opening it.
+     */
     public void indicateActive()
     {
         final long currentStatus = statusIndicator.get();
@@ -197,17 +213,10 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         statusIndicator.setOrdered(ChannelEndpointStatus.ACTIVE);
     }
 
-    private void updateLocalSocketAddress(final String bindAddressAndPort)
-    {
-        if (null != localSocketAddressIndicator)
-        {
-            LocalSocketAddressStatus.updateBindAddress(
-                localSocketAddressIndicator, bindAddressAndPort, context.countersMetaDataBuffer());
-            localSocketAddressIndicator.setOrdered(ChannelEndpointStatus.ACTIVE);
-        }
-    }
-
-    public void closeStatusIndicator()
+    /**
+     * Close the counters used to indicate channel status.
+     */
+    public void closeIndicators()
     {
         statusIndicator.close();
 
@@ -217,6 +226,11 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         }
     }
 
+    /**
+     * Close the {@link MultiRcvDestination} if present and associated {@link DataTransportPoller}.
+     *
+     * @param poller associated with the {@link MultiRcvDestination} if present.
+     */
     public void closeMultiRcvDestination(final DataTransportPoller poller)
     {
         if (null != multiRcvDestination)
@@ -225,6 +239,11 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         }
     }
 
+    /**
+     * Open the underlying sockets for the channel.
+     *
+     * @param conductorProxy for notifying potential channel errors.
+     */
     public void openChannel(final DriverConductorProxy conductorProxy)
     {
         if (null == multiRcvDestination)
@@ -248,16 +267,31 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         }
     }
 
+    /**
+     * Increment the {@link io.aeron.driver.status.SystemCounterDescriptor#POSSIBLE_TTL_ASYMMETRY} counter.
+     */
     public void possibleTtlAsymmetryEncountered()
     {
         possibleTtlAsymmetry.incrementOrdered();
     }
 
+    /**
+     * Increment the reference count for a given stream id.
+     *
+     * @param streamId to increment the reference for.
+     * @return current reference count after the increment.
+     */
     public int incRefToStream(final int streamId)
     {
         return refCountByStreamIdMap.incrementAndGet(streamId);
     }
 
+    /**
+     * Decrement the reference count for a given stream id.
+     *
+     * @param streamId to decrement the reference for.
+     * @return current reference count after the decrement.
+     */
     public int decRefToStream(final int streamId)
     {
         final int count = refCountByStreamIdMap.decrementAndGet(streamId);
@@ -271,11 +305,25 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         return count;
     }
 
+    /**
+     * Increment the reference count for a given stream id and session id.
+     *
+     * @param streamId  to increment the reference for.
+     * @param sessionId to increment the reference for.
+     * @return current reference count after the increment.
+     */
     public long incRefToStreamAndSession(final int streamId, final int sessionId)
     {
         return refCountByStreamIdAndSessionIdMap.incrementAndGet(Hashing.compoundKey(streamId, sessionId));
     }
 
+    /**
+     * Decrement the reference count for a given stream id and session id.
+     *
+     * @param streamId  to increment the reference for.
+     * @param sessionId to increment the reference for.
+     * @return current reference count after the decrement.
+     */
     public long decRefToStreamAndSession(final int streamId, final int sessionId)
     {
         final long key = Hashing.compoundKey(streamId, sessionId);
@@ -290,11 +338,21 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         return count;
     }
 
+    /**
+     * Total count of the streams.
+     *
+     * @return total count of the streams.
+     */
     public int streamCount()
     {
         return refCountByStreamIdMap.size() + refCountByStreamIdAndSessionIdMap.size();
     }
 
+    /**
+     * Should the channel be closed for cleanup.
+     *
+     * @return true if the channel should be closed for cleanup.
+     */
     public boolean shouldBeClosed()
     {
         return refCountByStreamIdMap.isEmpty() &&
@@ -302,21 +360,41 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
             !statusIndicator.isClosed();
     }
 
+    /**
+     * Does the channel have an explicit control address as used with multi-destination-cast or not?
+     *
+     * @return does channel have an explicit control address or not?
+     */
     public boolean hasExplicitControl()
     {
         return udpChannel.hasExplicitControl();
     }
 
+    /**
+     * Does the channel have an explicit control address as used with multi-destination-cast or not?
+     *
+     * @return does channel have an explicit control address or not?
+     */
     public InetSocketAddress explicitControlAddress()
     {
         return udpChannel.hasExplicitControl() ? currentControlAddress : null;
     }
 
+    /**
+     * Has the channel got control of destinations for MDS.
+     *
+     * @return true if the the channel got control of destinations for MDS.
+     */
     public boolean hasDestinationControl()
     {
-        return (null != multiRcvDestination);
+        return null != multiRcvDestination;
     }
 
+    /**
+     * Validate that the channel allows destination control.
+     * <p>
+     * If not then a {@link ControlProtocolException} will be thrown.
+     */
     public void validateAllowsDestinationControl()
     {
         if (null == multiRcvDestination)
@@ -325,11 +403,22 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         }
     }
 
+    /**
+     * Is the primary transport multicast?
+     *
+     * @return true if the primary transport is multicast.
+     */
     public boolean isMulticast()
     {
         return isMulticast(0);
     }
 
+    /**
+     * Is a given transport index multicast?
+     *
+     * @param transportIndex to check for multicast.
+     * @return true if the transport index is multicast.
+     */
     public boolean isMulticast(final int transportIndex)
     {
         if (null != multiRcvDestination)
@@ -344,11 +433,22 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         throw new IllegalStateException("isMulticast for unknown index " + transportIndex);
     }
 
+    /**
+     * Get the {@link UdpChannel} for the primary transport.
+     *
+     * @return the {@link UdpChannel} for the primary transport.
+     */
     public UdpChannel udpChannel()
     {
         return udpChannel(0);
     }
 
+    /**
+     * Get the {@link UdpChannel} for the transport index.
+     *
+     * @param transportIndex to the the {@link UdpChannel} for.
+     * @return the {@link UdpChannel} for the transport index.
+     */
     public UdpChannel udpChannel(final int transportIndex)
     {
         if (null != multiRcvDestination && multiRcvDestination.hasDestination(transportIndex))
@@ -363,26 +463,53 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         throw new IllegalStateException("udpChannel for unknown index " + transportIndex);
     }
 
+    /**
+     * Has the channel been tagged?
+     *
+     * @return true if the channel has a tag identity.
+     */
     public boolean hasTag()
     {
         return super.udpChannel.hasTag();
     }
 
+    /**
+     * The tag identity for the channel.
+     *
+     * @return the tag identity for the channel.
+     */
     public long tag()
     {
         return super.udpChannel.tag();
     }
 
+    /**
+     * Does the channel have a matching tag?
+     *
+     * @param udpChannel with tag to match against.
+     * @return true if the channel matches on tag identity.
+     */
     public boolean matchesTag(final UdpChannel udpChannel)
     {
         return super.udpChannel.matchesTag(udpChannel);
     }
 
+    /**
+     * Get the multicast TTL for the primary transport.
+     *
+     * @return the multicast TTL for the primary transport.
+     */
     public int multicastTtl()
     {
         return multicastTtl(0);
     }
 
+    /**
+     * Get the multicast TTL for the transport index.
+     *
+     * @param transportIndex to get the multicast TTL for.
+     * @return the multicast TTL for the transport index.
+     */
     public int multicastTtl(final int transportIndex)
     {
         if (null != multiRcvDestination)
@@ -397,31 +524,70 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         throw new IllegalStateException("multicastTtl for unknown index " + transportIndex);
     }
 
+    /**
+     * Add a destination to the channel to receive on.
+     *
+     * @param transport to add for the destination.
+     * @return index for the transport.
+     */
     public int addDestination(final ReceiveDestinationTransport transport)
     {
         return multiRcvDestination.addDestination(transport);
     }
 
+    /**
+     * Remove a transport by index from the channel.
+     *
+     * @param transportIndex to be removed.
+     */
     public void removeDestination(final int transportIndex)
     {
         multiRcvDestination.removeDestination(transportIndex);
     }
 
+    /**
+     * Get the transport index for a given channel.
+     *
+     * @param udpChannel to look up the transport index for.
+     * @return the transport index if found otherwise {@link ArrayUtil#UNKNOWN_INDEX}.
+     */
     public int destination(final UdpChannel udpChannel)
     {
         return multiRcvDestination.transport(udpChannel);
     }
 
+    /**
+     * Get the transport destination for a given index.
+     *
+     * @param transportIndex to get.
+     * @return the transport destination for a given index.
+     */
     public ReceiveDestinationTransport destination(final int transportIndex)
     {
         return multiRcvDestination.transport(transportIndex);
     }
 
+    /**
+     * Does the channel have a destination for a given index value.
+     *
+     * @param transportIndex to check if a destination exists for.
+     * @return true if the channel has a given transport index.
+     */
     public boolean hasDestination(final int transportIndex)
     {
         return null == multiRcvDestination ? (0 == transportIndex) : multiRcvDestination.hasDestination(transportIndex);
     }
 
+    /**
+     * Callback to handle a received data packet.
+     *
+     * @param header          of the data first frame.
+     * @param buffer          containing the data packet.
+     * @param length          of the data packet.
+     * @param srcAddress      from which the data packet was received.
+     * @param transportIndex  on which the packet was received.
+     * @return number of bytes applied as a result of this action.
+     */
     public int onDataPacket(
         final DataHeaderFlyweight header,
         final UnsafeBuffer buffer,
@@ -433,6 +599,15 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         return dispatcher.onDataPacket(this, header, buffer, length, srcAddress, transportIndex);
     }
 
+    /**
+     * Callback to handle a received setup frame.
+     *
+     * @param header          of the setup frame
+     * @param buffer          containing the setup frame.
+     * @param length          of the setup frame.
+     * @param srcAddress      the message came from.
+     * @param transportIndex  on which the message was received.
+     */
     public void onSetupMessage(
         final SetupFlyweight header,
         final UnsafeBuffer buffer,
@@ -444,6 +619,15 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         dispatcher.onSetupMessage(this, header, srcAddress, transportIndex);
     }
 
+    /**
+     * Callback to handle a received RTT Measurement frame.
+     *
+     * @param header          of the RTT Measurement frame
+     * @param buffer          containing the RTT Measurement frame.
+     * @param length          of the RTT Measurement frame.
+     * @param srcAddress      the message came from.
+     * @param transportIndex  on which the message was received.
+     */
     public void onRttMeasurement(
         final RttMeasurementFlyweight header,
         final UnsafeBuffer buffer,
@@ -459,27 +643,43 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         }
     }
 
+    /**
+     * Send a Setup Eliciting Status Message to a source.
+     *
+     * @param transportIndex for the source.
+     * @param controlAddress for the source.
+     * @param sessionId      for the image.
+     * @param streamId       for the image.
+     */
     public void sendSetupElicitingStatusMessage(
         final int transportIndex, final InetSocketAddress controlAddress, final int sessionId, final int streamId)
     {
-        if (!isClosed)
-        {
-            smBuffer.clear();
-            statusMessageFlyweight
-                .sessionId(sessionId)
-                .streamId(streamId)
-                .consumptionTermId(0)
-                .consumptionTermOffset(0)
-                .receiverWindowLength(0)
-                .receiverId(receiverId)
-                .groupTag(groupTag)
-                .flags(SEND_SETUP_FLAG);
-            smBuffer.limit(statusMessageFlyweight.frameLength());
+        smBuffer.clear();
+        statusMessageFlyweight
+            .sessionId(sessionId)
+            .streamId(streamId)
+            .consumptionTermId(0)
+            .consumptionTermOffset(0)
+            .receiverWindowLength(0)
+            .receiverId(receiverId)
+            .groupTag(groupTag)
+            .flags(SEND_SETUP_FLAG);
+        smBuffer.limit(statusMessageFlyweight.frameLength());
 
-            send(smBuffer, statusMessageFlyweight.frameLength(), transportIndex, controlAddress);
-        }
+        send(smBuffer, statusMessageFlyweight.frameLength(), transportIndex, controlAddress);
     }
 
+    /**
+     * Send a RTT Measurement frame to a source.
+     *
+     * @param transportIndex  for the source.
+     * @param controlAddress  for the source.
+     * @param sessionId       for the image.
+     * @param streamId        for the image.
+     * @param echoTimestampNs timestamp to echo in a reply.
+     * @param receptionDelta  time in nanoseconds between receiving original request and sending Reply RTT Measurement.
+     * @param isReply         true if a reply.
+     */
     public void sendRttMeasurement(
         final int transportIndex,
         final InetSocketAddress controlAddress,
@@ -489,21 +689,29 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         final long receptionDelta,
         final boolean isReply)
     {
-        if (!isClosed)
-        {
-            rttMeasurementBuffer.clear();
-            rttMeasurementFlyweight
-                .sessionId(sessionId)
-                .streamId(streamId)
-                .receiverId(receiverId)
-                .echoTimestampNs(echoTimestampNs)
-                .receptionDelta(receptionDelta)
-                .flags(isReply ? RttMeasurementFlyweight.REPLY_FLAG : 0);
+        rttMeasurementBuffer.clear();
+        rttMeasurementFlyweight
+            .sessionId(sessionId)
+            .streamId(streamId)
+            .receiverId(receiverId)
+            .echoTimestampNs(echoTimestampNs)
+            .receptionDelta(receptionDelta)
+            .flags(isReply ? RttMeasurementFlyweight.REPLY_FLAG : 0);
 
-            send(rttMeasurementBuffer, RttMeasurementFlyweight.HEADER_LENGTH, transportIndex, controlAddress);
-        }
+        send(rttMeasurementBuffer, RttMeasurementFlyweight.HEADER_LENGTH, transportIndex, controlAddress);
     }
 
+    /**
+     * Send a Status Message back to a sources.
+     *
+     * @param controlAddresses of the sources.
+     * @param sessionId        of the image.
+     * @param streamId         of the image.
+     * @param termId           of the image to indicate position.
+     * @param termOffset       of the image to indicate position.
+     * @param windowLength     for available buffer from the position.
+     * @param flags            for the header.
+     */
     public void sendStatusMessage(
         final ImageConnection[] controlAddresses,
         final int sessionId,
@@ -513,24 +721,31 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         final int windowLength,
         final short flags)
     {
-        if (!isClosed)
-        {
-            smBuffer.clear();
-            statusMessageFlyweight
-                .sessionId(sessionId)
-                .streamId(streamId)
-                .consumptionTermId(termId)
-                .consumptionTermOffset(termOffset)
-                .receiverWindowLength(windowLength)
-                .receiverId(receiverId)
-                .groupTag(groupTag)
-                .flags(flags);
-            smBuffer.limit(statusMessageFlyweight.frameLength());
+        smBuffer.clear();
+        statusMessageFlyweight
+            .sessionId(sessionId)
+            .streamId(streamId)
+            .consumptionTermId(termId)
+            .consumptionTermOffset(termOffset)
+            .receiverWindowLength(windowLength)
+            .receiverId(receiverId)
+            .groupTag(groupTag)
+            .flags(flags);
+        smBuffer.limit(statusMessageFlyweight.frameLength());
 
-            send(smBuffer, statusMessageFlyweight.frameLength(), controlAddresses);
-        }
+        send(smBuffer, statusMessageFlyweight.frameLength(), controlAddresses);
     }
 
+    /**
+     * Send a NAK message back to the sources.
+     *
+     * @param controlAddresses of the sources.
+     * @param sessionId        of the image.
+     * @param streamId         of the image.
+     * @param termId           of the image to indicate position.
+     * @param termOffset       of the image to indicate position.
+     * @param length           of the range to be re-transmitted.
+     */
     public void sendNakMessage(
         final ImageConnection[] controlAddresses,
         final int sessionId,
@@ -539,20 +754,27 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         final int termOffset,
         final int length)
     {
-        if (!isClosed)
-        {
-            nakBuffer.clear();
-            nakFlyweight
-                .streamId(streamId)
-                .sessionId(sessionId)
-                .termId(termId)
-                .termOffset(termOffset)
-                .length(length);
+        nakBuffer.clear();
+        nakFlyweight
+            .streamId(streamId)
+            .sessionId(sessionId)
+            .termId(termId)
+            .termOffset(termOffset)
+            .length(length);
 
-            send(nakBuffer, NakFlyweight.HEADER_LENGTH, controlAddresses);
-        }
+        send(nakBuffer, NakFlyweight.HEADER_LENGTH, controlAddresses);
     }
 
+    /**
+     * Send a RTT Measurement frame to the sources.
+     *
+     * @param controlAddresses of the sources.
+     * @param sessionId       for the image.
+     * @param streamId        for the image.
+     * @param echoTimestampNs timestamp to echo in a reply.
+     * @param receptionDelta  time in nanoseconds between receiving original request and sending Reply RTT Measurement.
+     * @param isReply         true if a reply.
+     */
     public void sendRttMeasurement(
         final ImageConnection[] controlAddresses,
         final int sessionId,
@@ -561,67 +783,87 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         final long receptionDelta,
         final boolean isReply)
     {
-        if (!isClosed)
-        {
-            rttMeasurementBuffer.clear();
-            rttMeasurementFlyweight
-                .sessionId(sessionId)
-                .streamId(streamId)
-                .receiverId(receiverId)
-                .echoTimestampNs(echoTimestampNs)
-                .receptionDelta(receptionDelta)
-                .flags(isReply ? RttMeasurementFlyweight.REPLY_FLAG : 0);
+        rttMeasurementBuffer.clear();
+        rttMeasurementFlyweight
+            .sessionId(sessionId)
+            .streamId(streamId)
+            .receiverId(receiverId)
+            .echoTimestampNs(echoTimestampNs)
+            .receptionDelta(receptionDelta)
+            .flags(isReply ? RttMeasurementFlyweight.REPLY_FLAG : 0);
 
-            send(rttMeasurementBuffer, RttMeasurementFlyweight.HEADER_LENGTH, controlAddresses);
+        send(rttMeasurementBuffer, RttMeasurementFlyweight.HEADER_LENGTH, controlAddresses);
+    }
+
+    /**
+     * Dispatcher for the channel.
+     *
+     * @return dispatcher for the channel.
+     */
+    public DataPacketDispatcher dispatcher()
+    {
+        return dispatcher;
+    }
+
+    /**
+     * Update the control address for a channel transport when re-resolution occurs.
+     *
+     * @param transportIndex to update the control address for.
+     * @param newAddress     for the control of the transport.
+     */
+    public void updateControlAddress(final int transportIndex, final InetSocketAddress newAddress)
+    {
+        if (null != multiRcvDestination)
+        {
+            multiRcvDestination.updateControlAddress(transportIndex, newAddress);
+        }
+        else if (udpChannel.hasExplicitControl())
+        {
+            currentControlAddress = newAddress;
         }
     }
 
-    public void removePendingSetup(final int sessionId, final int streamId)
+    /**
+     * Send a frame to the image connections.
+     *
+     * @param buffer           containing the frame.
+     * @param length           of the frame in the buffer.
+     * @param imageConnections to send the frame to.
+     */
+    protected void send(final ByteBuffer buffer, final int length, final ImageConnection[] imageConnections)
     {
-        dispatcher.removePendingSetup(sessionId, streamId);
+        final int bytesSent = null == multiRcvDestination ?
+            sendTo(buffer, imageConnections[0].controlAddress) :
+            multiRcvDestination.sendToAll(imageConnections, buffer, length, cachedNanoClock.nanoTime());
+
+        if (length != bytesSent)
+        {
+            shortSends.increment();
+        }
     }
 
-    public void removePublicationImage(final PublicationImage publicationImage)
+    /**
+     * Send a frame to a source.
+     *
+     * @param buffer         containing the frame.
+     * @param length         of the frame in the buffer.
+     * @param transportIndex to send the frame on.
+     * @param remoteAddress  to send the frame to.
+     */
+    protected void send(
+        final ByteBuffer buffer, final int length, final int transportIndex, final InetSocketAddress remoteAddress)
     {
-        dispatcher.removePublicationImage(publicationImage);
+        final int bytesSent = null == multiRcvDestination ?
+            sendTo(buffer, remoteAddress) :
+            MultiRcvDestination.sendTo(multiRcvDestination.transport(transportIndex), buffer, remoteAddress);
+
+        if (length != bytesSent)
+        {
+            shortSends.increment();
+        }
     }
 
-    public void addSubscription(final int streamId)
-    {
-        dispatcher.addSubscription(streamId);
-    }
-
-    public void addSubscription(final int streamId, final int sessionId)
-    {
-        dispatcher.addSubscription(streamId, sessionId);
-    }
-
-    public void removeSubscription(final int streamId)
-    {
-        dispatcher.removeSubscription(streamId);
-    }
-
-    public void removeSubscription(final int streamId, final int sessionId)
-    {
-        dispatcher.removeSubscription(streamId, sessionId);
-    }
-
-    public void addPublicationImage(final PublicationImage image)
-    {
-        dispatcher.addPublicationImage(image);
-    }
-
-    public void removeCoolDown(final int sessionId, final int streamId)
-    {
-        dispatcher.removeCoolDown(sessionId, streamId);
-    }
-
-    public boolean shouldElicitSetupMessage()
-    {
-        return dispatcher.shouldElicitSetupMessage();
-    }
-
-    public void checkForReResolution(final long nowNs, final DriverConductorProxy conductorProxy)
+    void checkForReResolution(final long nowNs, final DriverConductorProxy conductorProxy)
     {
         if (null != multiRcvDestination)
         {
@@ -638,47 +880,7 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         }
     }
 
-    public void updateControlAddress(final int transportIndex, final InetSocketAddress newAddress)
-    {
-        if (null != multiRcvDestination)
-        {
-            multiRcvDestination.updateControlAddress(transportIndex, newAddress);
-        }
-        else if (udpChannel.hasExplicitControl())
-        {
-            currentControlAddress = newAddress;
-        }
-    }
-
-    protected void send(final ByteBuffer buffer, final int bytesToSend, final ImageConnection[] imageConnections)
-    {
-        final int bytesSent = null == multiRcvDestination ?
-            sendTo(buffer, imageConnections[0].controlAddress) :
-            multiRcvDestination.sendToAll(imageConnections, buffer, bytesToSend, cachedNanoClock.nanoTime());
-
-        if (bytesToSend != bytesSent)
-        {
-            shortSends.increment();
-        }
-    }
-
-    protected void send(
-        final ByteBuffer buffer,
-        final int bytesToSend,
-        final int transportIndex,
-        final InetSocketAddress remoteAddress)
-    {
-        final int bytesSent = null == multiRcvDestination ?
-            sendTo(buffer, remoteAddress) :
-            MultiRcvDestination.sendTo(multiRcvDestination.transport(transportIndex), buffer, remoteAddress);
-
-        if (bytesToSend != bytesSent)
-        {
-            shortSends.increment();
-        }
-    }
-
-    protected void updateTimeOfLastActivityNs(final long nowNs, final int transportIndex)
+    private void updateTimeOfLastActivityNs(final long nowNs, final int transportIndex)
     {
         if (null == multiRcvDestination)
         {
@@ -687,6 +889,16 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         else
         {
             multiRcvDestination.transport(transportIndex).timeOfLastActivityNs(nowNs);
+        }
+    }
+
+    private void updateLocalSocketAddress(final String bindAddressAndPort)
+    {
+        if (null != localSocketAddressIndicator)
+        {
+            LocalSocketAddressStatus.updateBindAddress(
+                localSocketAddressIndicator, bindAddressAndPort, context.countersMetaDataBuffer());
+            localSocketAddressIndicator.setOrdered(ChannelEndpointStatus.ACTIVE);
         }
     }
 }

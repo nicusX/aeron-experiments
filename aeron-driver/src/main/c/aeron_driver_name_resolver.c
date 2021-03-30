@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -88,17 +88,16 @@ typedef struct aeron_driver_name_resolver_stct
     int64_t neighbor_resolution_interval_ms;
     int64_t neighbor_timeout_ms;
 
-    int64_t time_of_last_work_ms;
-    int64_t time_of_last_bootstrap_neighbor_resolve_ms;
+    int64_t work_deadline_ms;
+    int64_t bootstrap_neighbor_resolve_deadline_ms;
     int64_t self_resolutions_deadline_ms;
     int64_t neighbor_resolutions_deadline_ms;
-
-    int64_t now_ms;
 
     int64_t *invalid_packets_counter;
     int64_t *short_sends_counter;
     int64_t *error_counter;
 
+    aeron_clock_cache_t *cached_clock;
     aeron_position_t neighbor_counter;
     aeron_position_t cache_size_counter;
     aeron_distinct_error_log_t *error_log;
@@ -137,7 +136,7 @@ int aeron_driver_name_resolver_init(
 
     if (aeron_alloc((void **)&_driver_resolver, sizeof(aeron_driver_name_resolver_t)) < 0)
     {
-        aeron_set_err_from_last_err_code("%s:%d", __FILE__, __LINE__);
+        AERON_APPEND_ERR("Failed to allocate driver resolver for: %s", name);
         goto error_cleanup;
     }
 
@@ -148,12 +147,13 @@ int aeron_driver_name_resolver_init(
     {
         if (aeron_alloc((void **)&local_hostname, AERON_MAX_HOSTNAME_LEN) < 0)
         {
+            AERON_APPEND_ERR("Failed to allocate local_hostname for: %s", name);
             goto error_cleanup;
         }
 
         if (gethostname(local_hostname, AERON_MAX_HOSTNAME_LEN) < 0)
         {
-            aeron_set_err(errno, "Failed to lookup: %s", local_hostname);
+            AERON_SET_ERR(errno, "Failed to lookup: %s", local_hostname);
             goto error_cleanup;
         }
 
@@ -220,7 +220,11 @@ int aeron_driver_name_resolver_init(
         context,
         AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_CONDUCTOR) < 0)
     {
-        aeron_set_err(aeron_errcode(), "resolver : %s", aeron_errmsg());
+        AERON_APPEND_ERR(
+            "resolver, name: %s, interface_name: %s, bootstrap_neighbor: %s",
+            name,
+            interface_name,
+            bootstrap_neighbor);
         goto error_cleanup;
     }
 
@@ -240,14 +244,15 @@ int aeron_driver_name_resolver_init(
 
     aeron_name_resolver_cache_init(&_driver_resolver->cache, AERON_NAME_RESOLVER_DRIVER_TIMEOUT_MS);
 
-    int64_t now_ms = aeron_clock_cached_epoch_time(context->cached_clock);
+    int64_t now_ms = context->epoch_clock();
+    _driver_resolver->cached_clock = context->cached_clock;
     _driver_resolver->neighbor_timeout_ms = AERON_NAME_RESOLVER_DRIVER_TIMEOUT_MS;
     _driver_resolver->self_resolution_interval_ms = AERON_NAME_RESOLVER_DRIVER_SELF_RESOLUTION_INTERVAL_MS;
     _driver_resolver->self_resolutions_deadline_ms = 0;
     _driver_resolver->neighbor_resolution_interval_ms = AERON_NAME_RESOLVER_DRIVER_NEIGHBOUR_RESOLUTION_INTERVAL_MS;
     _driver_resolver->neighbor_resolutions_deadline_ms = now_ms + _driver_resolver->neighbor_resolution_interval_ms;
-    _driver_resolver->time_of_last_bootstrap_neighbor_resolve_ms = now_ms;
-    _driver_resolver->time_of_last_work_ms = 0;
+    _driver_resolver->bootstrap_neighbor_resolve_deadline_ms = now_ms;
+    _driver_resolver->work_deadline_ms = 0;
 
     _driver_resolver->neighbor_counter.counter_id = aeron_counters_manager_allocate(
         context->counters_manager,
@@ -335,7 +340,7 @@ static int aeron_driver_name_resolver_to_sockaddr(
     }
     else
     {
-        aeron_set_err(EINVAL, "Invalid res_type: %d", cache_addr->res_type);
+        AERON_SET_ERR(EINVAL, "Invalid res_type: %d", cache_addr->res_type);
     }
 
     return result;
@@ -363,7 +368,7 @@ static int aeron_driver_name_resolver_from_sockaddr(
     }
     else
     {
-        aeron_set_err(EINVAL, "Invalid address family: %d", addr->ss_family);
+        AERON_SET_ERR(EINVAL, "Invalid address family: %d", addr->ss_family);
     }
 
     return result;
@@ -412,9 +417,10 @@ static int aeron_driver_name_resolver_add_neighbor(
         AERON_ARRAY_ENSURE_CAPACITY(ensure_capacity_result, resolver->neighbors, aeron_driver_name_resolver_neighbor_t)
         if (ensure_capacity_result < 0)
         {
-            aeron_set_err_from_last_err_code(
-                "Failed to allocate rows for neighbors table (%" PRIu32 ",%" PRIu32 ") - %s:%d",
-                (uint32_t)resolver->neighbors.length, (uint32_t)resolver->neighbors.capacity, __FILE__, __LINE__);
+            AERON_APPEND_ERR(
+                "Failed to allocate rows for neighbors table (%" PRIu64 ",%" PRIu64 ")",
+                (uint64_t)resolver->neighbors.length,
+                (uint64_t)resolver->neighbors.capacity);
 
             return ensure_capacity_result;
         }
@@ -492,9 +498,9 @@ static bool aeron_driver_name_resolver_is_wildcard(int8_t res_type, uint8_t *add
 
 static void aeron_name_resolver_log_and_clear_error(aeron_driver_name_resolver_t *resolver)
 {
-    aeron_distinct_error_log_record(resolver->error_log, AERON_ERROR_CODE_GENERIC_ERROR, aeron_errmsg(), "");
+    aeron_distinct_error_log_record(resolver->error_log, aeron_errcode(), aeron_errmsg());
     aeron_counter_increment(resolver->error_counter, 1);
-    aeron_set_err(0, "%s", "no error");
+    aeron_err_clear();
 }
 
 void aeron_driver_name_resolver_receive(
@@ -530,7 +536,7 @@ void aeron_driver_name_resolver_receive(
 
         aeron_resolution_header_t *resolution_header = (aeron_resolution_header_t *)&buffer[offset];
         aeron_name_resolver_cache_addr_t cache_addr;
-        const char *name;
+        const char *name = NULL;
         size_t name_length;
         size_t entry_length;
 
@@ -567,7 +573,7 @@ void aeron_driver_name_resolver_receive(
         }
         else
         {
-            aeron_set_err(EINVAL, "Invalid res type on entry: %d", resolution_header->res_type);
+            AERON_SET_ERR(EINVAL, "Invalid res type on entry: %d", resolution_header->res_type);
             aeron_name_resolver_log_and_clear_error(resolver);
             return;
         }
@@ -578,18 +584,18 @@ void aeron_driver_name_resolver_receive(
         {
             if (aeron_driver_name_resolver_from_sockaddr(addr, &cache_addr) < 0)
             {
-                aeron_set_err_from_last_err_code(
-                    "Failed to replace wildcard with source addr: %d, %s", addr->ss_family, aeron_errmsg());
+                AERON_APPEND_ERR("%s", "Failed to replace wildcard with source addr");
                 aeron_name_resolver_log_and_clear_error(resolver);
 
                 return;
             }
         }
 
+        const int64_t now_ms = aeron_clock_cached_epoch_time(resolver->cached_clock);
         if (aeron_driver_name_resolver_on_resolution_entry(
-            resolver, resolution_header, name, name_length, &cache_addr, is_self, resolver->now_ms) < 0)
+            resolver, resolution_header, name, name_length, &cache_addr, is_self, now_ms) < 0)
         {
-            aeron_set_err_from_last_err_code("Failed to handle resolution entry: %s", aeron_errmsg());
+            AERON_APPEND_ERR("%s", "Failed to handle resolution entry");
             aeron_name_resolver_log_and_clear_error(resolver);
         }
 
@@ -628,7 +634,7 @@ static int aeron_driver_name_resolver_poll(aeron_driver_name_resolver_t *resolve
 
     if (poll_result < 0)
     {
-        aeron_set_err(poll_result, "Failed to poll in driver name resolver: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "Failed to poll in driver name resolver: %s", resolver->name);
         aeron_name_resolver_log_and_clear_error(resolver);
     }
 
@@ -690,7 +696,9 @@ static int aeron_driver_name_resolver_do_send(
     }
     else
     {
-        aeron_set_err(errno, "Failed to send resolution frames: %s", aeron_errmsg());
+        char buffer[AERON_NETUTIL_FORMATTED_MAX_LENGTH] = { 0 };
+        aeron_format_source_identity(buffer, AERON_NETUTIL_FORMATTED_MAX_LENGTH, neighbor_address);
+        AERON_APPEND_ERR("Failed to send resolution frames to neighbor: %s", buffer);
     }
 
     return send_result;
@@ -704,7 +712,6 @@ static int aeron_driver_name_resolver_send_self_resolutions(aeron_driver_name_re
     }
 
     const size_t entry_offset = sizeof(aeron_frame_header_t);
-
     uint8_t *aligned_buffer = resolver->aligned_buffer;
     aeron_frame_header_t *frame_header = (aeron_frame_header_t *)&aligned_buffer[0];
     aeron_resolution_header_t *resolution_header = (aeron_resolution_header_t *)&aligned_buffer[entry_offset];
@@ -732,7 +739,7 @@ static int aeron_driver_name_resolver_send_self_resolutions(aeron_driver_name_re
     struct sockaddr_storage neighbor_sock_addr;
 
     bool send_to_bootstrap = NULL != resolver->bootstrap_neighbor;
-    int send_work = 0;
+    int work_count = 0;
     // TODO: Optimise with sendmmsg
     for (size_t k = 0; k < resolver->neighbors.length; k++)
     {
@@ -742,12 +749,12 @@ static int aeron_driver_name_resolver_send_self_resolutions(aeron_driver_name_re
 
         if (aeron_driver_name_resolver_do_send(resolver, frame_header, frame_length, &neighbor_sock_addr) < 0)
         {
-            aeron_set_err_from_last_err_code("Self resolution to neighbor: %s", aeron_errmsg());
+            AERON_APPEND_ERR("%s", "Failed to send self resolutions");
             aeron_name_resolver_log_and_clear_error(resolver);
         }
         else
         {
-            send_work++;
+            work_count++;
         }
 
         if (send_to_bootstrap &&
@@ -759,7 +766,7 @@ static int aeron_driver_name_resolver_send_self_resolutions(aeron_driver_name_re
 
     if (send_to_bootstrap)
     {
-        if (resolver->time_of_last_bootstrap_neighbor_resolve_ms + AERON_NAME_RESOLVER_DRIVER_TIMEOUT_MS <= now_ms)
+        if (now_ms > resolver->bootstrap_neighbor_resolve_deadline_ms)
         {
             if (aeron_name_resolver_resolve_host_and_port(
                 &resolver->bootstrap_resolver,
@@ -768,27 +775,26 @@ static int aeron_driver_name_resolver_send_self_resolutions(aeron_driver_name_re
                 false,
                 &resolver->bootstrap_neighbor_addr) < 0)
             {
-                aeron_set_err(
-                    -1, "failed to resolve bootstrap neighbor (%s), %s", resolver->bootstrap_neighbor, aeron_errmsg());
-                return send_work;
+                AERON_APPEND_ERR("failed to resolve bootstrap neighbor (%s)", resolver->bootstrap_neighbor);
+                return work_count;
             }
 
-            resolver->time_of_last_bootstrap_neighbor_resolve_ms = now_ms;
+            resolver->bootstrap_neighbor_resolve_deadline_ms = now_ms + AERON_NAME_RESOLVER_DRIVER_TIMEOUT_MS;
         }
 
         if (aeron_driver_name_resolver_do_send(
             resolver, frame_header, frame_length, &resolver->bootstrap_neighbor_addr) < 0)
         {
-            aeron_set_err_from_last_err_code("Self resolution to bootstrap: %s", aeron_errmsg());
+            AERON_APPEND_ERR("%s", "Failed to send bootstrap resolutions");
             aeron_name_resolver_log_and_clear_error(resolver);
         }
         else
         {
-            send_work++;
+            work_count++;
         }
     }
 
-    return send_work;
+    return work_count;
 }
 
 static int aeron_driver_name_resolver_send_neighbor_resolutions(aeron_driver_name_resolver_t *resolver, int64_t now_ms)
@@ -841,9 +847,8 @@ static int aeron_driver_name_resolver_send_neighbor_resolutions(aeron_driver_nam
 
             if (aeron_driver_name_resolver_do_send(resolver, frame_header, entry_offset, &neighbor->socket_addr) < 0)
             {
-                aeron_set_err_from_last_err_code("Neighbor resolutions: %s", aeron_errmsg());
-                aeron_distinct_error_log_record(
-                    resolver->error_log, AERON_ERROR_CODE_GENERIC_ERROR, aeron_errmsg(), "");
+                AERON_APPEND_ERR("%s", "Failed to send neighbour resolutions");
+                aeron_distinct_error_log_record(resolver->error_log, aeron_errcode(), aeron_errmsg());
             }
             else
             {
@@ -900,12 +905,7 @@ int aeron_driver_name_resolver_set_resolution_header_from_sockaddr(
     }
 
     return aeron_driver_name_resolver_set_resolution_header(
-        resolution_header,
-        capacity,
-        flags,
-        &cache_addr,
-        name,
-        name_length);
+        resolution_header, capacity, flags, &cache_addr, name, name_length);
 }
 
 int aeron_driver_name_resolver_set_resolution_header(
@@ -998,24 +998,23 @@ int aeron_driver_name_resolver_resolve(
 int aeron_driver_name_resolver_do_work(aeron_name_resolver_t *resolver, int64_t now_ms)
 {
     aeron_driver_name_resolver_t *driver_resolver = resolver->state;
-    driver_resolver->now_ms = now_ms;
     int work_count = 0;
 
-    if ((driver_resolver->time_of_last_work_ms + AERON_NAME_RESOLVER_DRIVER_DUTY_CYCLE_MS) <= now_ms)
+    if (now_ms > driver_resolver->work_deadline_ms)
     {
         work_count += aeron_driver_name_resolver_poll(driver_resolver);
         work_count += aeron_name_resolver_cache_timeout_old_entries(
             &driver_resolver->cache, now_ms, driver_resolver->cache_size_counter.value_addr);
         work_count += aeron_driver_name_resolver_timeout_neighbors(driver_resolver, now_ms);
 
-        if (driver_resolver->self_resolutions_deadline_ms <= now_ms)
+        if (now_ms > driver_resolver->self_resolutions_deadline_ms)
         {
             work_count += aeron_driver_name_resolver_send_self_resolutions(driver_resolver, now_ms);
 
             driver_resolver->self_resolutions_deadline_ms = now_ms + driver_resolver->self_resolution_interval_ms;
         }
 
-        if (driver_resolver->neighbor_resolutions_deadline_ms <= now_ms)
+        if (now_ms > driver_resolver->neighbor_resolutions_deadline_ms)
         {
             work_count += aeron_driver_name_resolver_send_neighbor_resolutions(driver_resolver, now_ms);
 
@@ -1023,7 +1022,7 @@ int aeron_driver_name_resolver_do_work(aeron_name_resolver_t *resolver, int64_t 
                 now_ms + driver_resolver->neighbor_resolution_interval_ms;
         }
 
-        driver_resolver->time_of_last_work_ms = now_ms;
+        driver_resolver->work_deadline_ms = now_ms + AERON_NAME_RESOLVER_DRIVER_DUTY_CYCLE_MS;
     }
 
     return work_count;

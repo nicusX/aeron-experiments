@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -210,12 +210,12 @@ std::shared_ptr<AeronArchive::AsyncConnect> AeronArchive::asyncConnect(AeronArch
 {
     ctx.conclude();
 
-    const long long deadlineNs = systemNanoClock() + ctx.messageTimeoutNs();
     std::shared_ptr<Aeron> aeron = ctx.aeron();
     const std::int64_t subscriptionId = aeron->addSubscription(
         ctx.controlResponseChannel(), ctx.controlResponseStreamId());
     const std::int64_t publicationId = aeron->addExclusivePublication(
         ctx.controlRequestChannel(), ctx.controlRequestStreamId());
+    const long long deadlineNs = systemNanoClock() + ctx.messageTimeoutNs();
 
     return std::make_shared<AeronArchive::AsyncConnect>(ctx, aeron, subscriptionId, publicationId, deadlineNs);
 }

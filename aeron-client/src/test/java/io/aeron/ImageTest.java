@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -368,7 +368,7 @@ public class ImageTest
 
         inOrder.verify(mockControlledFragmentHandler).onFragment(
             any(UnsafeBuffer.class), eq(ALIGNED_FRAME_LENGTH + HEADER_LENGTH), eq(DATA.length), any(Header.class));
-        inOrder.verify(position).setOrdered(initialPosition + (ALIGNED_FRAME_LENGTH * 2));
+        inOrder.verify(position).setOrdered(initialPosition + (ALIGNED_FRAME_LENGTH * 2L));
     }
 
     @Test
@@ -400,7 +400,7 @@ public class ImageTest
             eq(ALIGNED_FRAME_LENGTH + HEADER_LENGTH),
             eq(DATA.length),
             any(Header.class));
-        inOrder.verify(position).setOrdered(initialPosition + (ALIGNED_FRAME_LENGTH * 2));
+        inOrder.verify(position).setOrdered(initialPosition + (ALIGNED_FRAME_LENGTH * 2L));
 
         // third fragment, continue, but position is updated because last
         inOrder.verify(mockControlledFragmentHandler).onFragment(
@@ -408,7 +408,7 @@ public class ImageTest
             eq(2 * ALIGNED_FRAME_LENGTH + HEADER_LENGTH),
             eq(DATA.length),
             any(Header.class));
-        inOrder.verify(position).setOrdered(initialPosition + (ALIGNED_FRAME_LENGTH * 3));
+        inOrder.verify(position).setOrdered(initialPosition + (ALIGNED_FRAME_LENGTH * 3L));
     }
 
     @Test
@@ -433,7 +433,7 @@ public class ImageTest
             any(UnsafeBuffer.class), eq(HEADER_LENGTH), eq(DATA.length), any(Header.class));
         inOrder.verify(mockControlledFragmentHandler).onFragment(
             any(UnsafeBuffer.class), eq(ALIGNED_FRAME_LENGTH + HEADER_LENGTH), eq(DATA.length), any(Header.class));
-        inOrder.verify(position).setOrdered(initialPosition + (ALIGNED_FRAME_LENGTH * 2));
+        inOrder.verify(position).setOrdered(initialPosition + (ALIGNED_FRAME_LENGTH * 2L));
     }
 
     @Test

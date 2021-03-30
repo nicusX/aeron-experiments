@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ import static java.nio.file.StandardOpenOption.*;
  *
  * @see io.aeron.logbuffer.LogBufferDescriptor
  */
-public class LogBuffers implements AutoCloseable
+public final class LogBuffers implements AutoCloseable
 {
     private static final EnumSet<StandardOpenOption> FILE_OPTIONS = EnumSet.of(READ, WRITE, SPARSE);
     private static final FileAttribute<?>[] NO_ATTRIBUTES = new FileAttribute[0];

@@ -1,5 +1,5 @@
 #
-# Copyright 2014-2020 Real Logic Limited.
+# Copyright 2014-2021 Real Logic Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,10 +19,11 @@ if ("${CMAKE_SYSTEM_NAME}" MATCHES "Linux")
     add_definitions(-D_DEFAULT_SOURCE)
 endif ()
 
-set(CLIENT_LINK_LIB "aeron")
-if (LINK_SAMPLES_CLIENT_SHARED)
-    set(CLIENT_LINK_LIB "aeron_shared")
+if (LINK_SAMPLES_CLIENT_SHARED OR (MSVC AND "${CMAKE_SYSTEM_NAME}" MATCHES "Windows"))
+    set(CLIENT_LINK_LIB "aeron")
     add_definitions(-DCLIENT_SHARED)
+else()
+    set(CLIENT_LINK_LIB "aeron_static")
 endif ()
 
 include_directories(${AERON_CLIENT_SOURCE_PATH})
@@ -79,7 +80,6 @@ target_link_libraries(ErrorStat ${CLIENT_LINK_LIB})
 
 add_executable(LossStat loss_stat.c ${HEADERS})
 target_link_libraries(LossStat ${CLIENT_LINK_LIB})
-
 
 if (AERON_INSTALL_TARGETS)
     install(

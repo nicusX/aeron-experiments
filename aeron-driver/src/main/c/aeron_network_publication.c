@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -57,19 +57,14 @@ int aeron_network_publication_create(
     bool is_exclusive,
     aeron_system_counters_t *system_counters)
 {
-    char path[AERON_MAX_PATH];
-    int path_length = aeron_network_publication_location(path, sizeof(path), context->aeron_dir, registration_id);
-
     aeron_network_publication_t *_pub = NULL;
-    const uint64_t usable_fs_space = context->usable_fs_space_func(context->aeron_dir);
     const uint64_t log_length = aeron_logbuffer_compute_log_length(params->term_length, context->file_page_size);
-    int64_t now_ns = aeron_clock_cached_nano_time(context->cached_clock);
 
     *publication = NULL;
 
-    if (usable_fs_space < log_length)
+    if (context->perform_storage_checks && context->usable_fs_space_func(context->aeron_dir) < log_length)
     {
-        aeron_set_err(
+        AERON_SET_ERR(
             ENOSPC,
             "Insufficient usable storage for new log of length=%" PRId64 " in %s", log_length, context->aeron_dir);
         return -1;
@@ -77,15 +72,17 @@ int aeron_network_publication_create(
 
     if (aeron_alloc((void **)&_pub, sizeof(aeron_network_publication_t)) < 0)
     {
-        aeron_set_err(ENOMEM, "%s", "Could not allocate network publication");
+        AERON_APPEND_ERR("%s", "Could not allocate network publication");
         return -1;
     }
 
+    char path[AERON_MAX_PATH];
+    int path_length = aeron_network_publication_location(path, sizeof(path), context->aeron_dir, registration_id);
     _pub->log_file_name = NULL;
     if (aeron_alloc((void **)(&_pub->log_file_name), (size_t)path_length + 1) < 0)
     {
         aeron_free(_pub);
-        aeron_set_err(ENOMEM, "%s", "Could not allocate network publication log_file_name");
+        AERON_APPEND_ERR("%s", "Could not allocate network publication log_file_name");
         return -1;
     }
 
@@ -97,7 +94,11 @@ int aeron_network_publication_create(
     {
         aeron_free(_pub->log_file_name);
         aeron_free(_pub);
-        aeron_set_err(aeron_errcode(), "Could not init network publication retransmit handler: %s", aeron_errmsg());
+        AERON_APPEND_ERR(
+            "%s",
+            "Could not init network publication retransmit handler, delay: %" PRIu64 ", linger: %" PRIu64,
+            context->retransmit_unicast_delay_ns,
+            context->retransmit_unicast_linger_ns);
         return -1;
     }
 
@@ -106,7 +107,7 @@ int aeron_network_publication_create(
     {
         aeron_free(_pub->log_file_name);
         aeron_free(_pub);
-        aeron_set_err(aeron_errcode(), "error mapping network raw log %s: %s", path, aeron_errmsg());
+        AERON_APPEND_ERR("error mapping network raw log: %s", path);
         return -1;
     }
     _pub->raw_log_close_func = context->raw_log_close_func;
@@ -148,6 +149,8 @@ int aeron_network_publication_create(
         _pub->log_meta_data->active_term_count = 0;
     }
 
+    int64_t now_ns = aeron_clock_cached_nano_time(context->sender_cached_clock);
+
     _pub->log_meta_data->initial_term_id = initial_term_id;
     _pub->log_meta_data->mtu_length = (int32_t)params->mtu_length;
     _pub->log_meta_data->term_length = (int32_t)params->term_length;
@@ -161,7 +164,7 @@ int aeron_network_publication_create(
 
     _pub->endpoint = endpoint;
     _pub->flow_control = flow_control_strategy;
-    _pub->cached_clock = context->cached_clock;
+    _pub->cached_clock = context->sender_cached_clock;
     _pub->conductor_fields.subscribable.array = NULL;
     _pub->conductor_fields.subscribable.length = 0;
     _pub->conductor_fields.subscribable.capacity = 0;
@@ -201,14 +204,14 @@ int aeron_network_publication_create(
     _pub->linger_timeout_ns = (int64_t)params->linger_timeout_ns;
     _pub->unblock_timeout_ns = (int64_t)context->publication_unblock_timeout_ns;
     _pub->connection_timeout_ns = (int64_t)context->publication_connection_timeout_ns;
-    _pub->time_of_last_send_or_heartbeat_ns = now_ns - AERON_NETWORK_PUBLICATION_HEARTBEAT_TIMEOUT_NS - 1;
+    _pub->time_of_last_data_or_heartbeat_ns = now_ns - AERON_NETWORK_PUBLICATION_HEARTBEAT_TIMEOUT_NS - 1;
     _pub->time_of_last_setup_ns = now_ns - AERON_NETWORK_PUBLICATION_SETUP_TIMEOUT_NS - 1;
     _pub->status_message_deadline_ns = params->spies_simulate_connection ?
         now_ns : now_ns + (int64_t)context->publication_connection_timeout_ns;
     _pub->is_exclusive = is_exclusive;
     _pub->spies_simulate_connection = params->spies_simulate_connection;
     _pub->signal_eos = params->signal_eos;
-    _pub->should_send_setup_frame = true;
+    _pub->is_setup_elicited = false;
     _pub->has_receivers = false;
     _pub->has_spies = false;
     _pub->is_connected = false;
@@ -304,11 +307,10 @@ int aeron_network_publication_setup_message_check(
         }
 
         publication->time_of_last_setup_ns = now_ns;
-        publication->time_of_last_send_or_heartbeat_ns = now_ns;
 
         if (publication->has_receivers)
         {
-            publication->should_send_setup_frame = false;
+            publication->is_setup_elicited = false;
         }
     }
 
@@ -324,7 +326,8 @@ int aeron_network_publication_heartbeat_message_check(
 {
     int bytes_sent = 0;
 
-    if (now_ns > (publication->time_of_last_send_or_heartbeat_ns + AERON_NETWORK_PUBLICATION_HEARTBEAT_TIMEOUT_NS))
+    if (publication->has_initial_connection &&
+        now_ns > (publication->time_of_last_data_or_heartbeat_ns + AERON_NETWORK_PUBLICATION_HEARTBEAT_TIMEOUT_NS))
     {
         uint8_t heartbeat_buffer[sizeof(aeron_data_header_t)];
         aeron_data_header_t *data_header = (aeron_data_header_t *)heartbeat_buffer;
@@ -364,7 +367,7 @@ int aeron_network_publication_heartbeat_message_check(
         }
 
         aeron_counter_ordered_increment(publication->heartbeats_sent_counter, 1);
-        publication->time_of_last_send_or_heartbeat_ns = now_ns;
+        publication->time_of_last_data_or_heartbeat_ns = now_ns;
     }
 
     return bytes_sent;
@@ -426,7 +429,7 @@ int aeron_network_publication_send_data(
             }
         }
 
-        publication->time_of_last_send_or_heartbeat_ns = now_ns;
+        publication->time_of_last_data_or_heartbeat_ns = now_ns;
         publication->track_sender_limits = true;
         aeron_counter_set_ordered(publication->snd_pos_position.value_addr, highest_pos);
     }
@@ -447,7 +450,7 @@ int aeron_network_publication_send(aeron_network_publication_t *publication, int
         snd_pos, publication->position_bits_to_shift, publication->initial_term_id);
     int32_t term_offset = (int32_t)(snd_pos & publication->term_length_mask);
 
-    if (publication->should_send_setup_frame)
+    if (!publication->has_initial_connection || publication->is_setup_elicited)
     {
         if (aeron_network_publication_setup_message_check(publication, now_ns, active_term_id, term_offset) < 0)
         {
@@ -620,6 +623,11 @@ void aeron_network_publication_on_status_message(
     if (!publication->has_receivers)
     {
         AERON_PUT_ORDERED(publication->has_receivers, true);
+    }
+
+    if (!publication->has_initial_connection)
+    {
+        publication->has_initial_connection = true;
     }
 
     aeron_counter_set_ordered(

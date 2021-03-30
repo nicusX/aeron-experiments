@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,8 +27,9 @@ public interface Subscribable
      *
      * @param subscriptionLink   for identifying the subscriber.
      * @param subscriberPosition for tracking the subscriber.
+     * @param nowNs              for the current time.
      */
-    void addSubscriber(SubscriptionLink subscriptionLink, ReadablePosition subscriberPosition);
+    void addSubscriber(SubscriptionLink subscriptionLink, ReadablePosition subscriberPosition, long nowNs);
 
     /**
      * Remove a subscriber and its position used for tracking consumption.

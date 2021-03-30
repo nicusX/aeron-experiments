@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,34 @@ import java.net.InetSocketAddress;
 /**
  * State tracking for a connection endpoint to an image from a transport.
  */
-public class ImageConnection
+public final class ImageConnection
 {
+    /**
+     * Time of the last observed activity on this connection for tracking liveness.
+     */
     public long timeOfLastActivityNs;
+
+    /**
+     * Time of the last observed from from the source.
+     */
     public long timeOfLastFrameNs;
+
+    /**
+     * Is the end of the stream from source been observed.
+     */
     public boolean isEos;
+
+    /**
+     * Control address for the source.
+     */
     public final InetSocketAddress controlAddress;
 
+    /**
+     * Construct a representation of a connection to an image.
+     *
+     * @param timeOfLastActivityNs seen on this image.
+     * @param controlAddress for the source of the image.
+     */
     public ImageConnection(final long timeOfLastActivityNs, final InetSocketAddress controlAddress)
     {
         this.timeOfLastActivityNs = timeOfLastActivityNs;

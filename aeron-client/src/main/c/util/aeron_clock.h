@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,22 @@ aeron_clock_cache_t;
  * @param nano_time current ns time.
  */
 void aeron_clock_update_cached_time(aeron_clock_cache_t *cached_clock, int64_t epoch_time, int64_t nano_time);
+
+/**
+ * Update the cached clock with the current epoch time value.
+ *
+ * @param cached_clock 'this'
+ * @param epoch_time current ms since epoch.
+ */
+void aeron_clock_update_cached_epoch_time(aeron_clock_cache_t *cached_clock, int64_t epoch_time);
+
+/**
+ * Update the cached clock with the current nano time value.
+ *
+ * @param cached_clock 'this'
+ * @param nano_time current ns time.
+ */
+void aeron_clock_update_cached_nano_time(aeron_clock_cache_t *cached_clock, int64_t nano_time);
 
 /**
  * Retrieves the cached epoch time from supplied cached clock.

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -330,8 +330,7 @@ public class BasicArchiveTest
             sourceIdentity) -> fail("Recording was not purged!"));
 
         assertEquals(0, count);
-
-        assertArrayEquals(new String[0], Catalog.listSegmentFiles(archiveDir, recordingId));
+        Tests.await(() -> 0 == Catalog.listSegmentFiles(archiveDir, recordingId).length);
 
         for (final String segmentFile : segmentFiles)
         {

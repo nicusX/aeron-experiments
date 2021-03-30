@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1013,7 +1013,7 @@ public class ArchiveTool
 
     private static void printMarkInformation(final ArchiveMarkFile markFile, final PrintStream out)
     {
-        out.format("%1$tH:%1$tM:%1$tS (start: %2tF %2$tH:%2$tM:%2$tS, activity: %3tF %3$tH:%3$tM:%3$tS)%n",
+        out.format("%1$tH:%1$tM:%1$tS (start: %2$tF %2$tH:%2$tM:%2$tS, activity: %3$tF %3$tH:%3$tM:%3$tS)%n",
             new Date(), new Date(markFile.decoder().startTimestamp()),
             new Date(markFile.activityTimestampVolatile()));
         out.println(markFile.decoder());

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -141,19 +141,15 @@ public enum ArchiveEventCode implements EventCode
         this.dissector = dissector;
     }
 
-    static ArchiveEventCode get(final int eventCodeId)
+    static ArchiveEventCode get(final int id)
     {
-        return EVENT_CODE_BY_ID[eventCodeId];
+        return id >= 0 && id < EVENT_CODE_BY_ID.length ? EVENT_CODE_BY_ID[id] : null;
     }
 
     static ArchiveEventCode getByTemplateId(final int templateId)
     {
-        if (templateId >= 0 && templateId < EVENT_CODE_BY_TEMPLATE_ID.length)
-        {
-            return EVENT_CODE_BY_TEMPLATE_ID[templateId];
-        }
-
-        return null;
+        return templateId >= 0 && templateId < EVENT_CODE_BY_TEMPLATE_ID.length ?
+            EVENT_CODE_BY_TEMPLATE_ID[templateId] : null;
     }
 
     /**
@@ -164,11 +160,44 @@ public enum ArchiveEventCode implements EventCode
         return id;
     }
 
+    /**
+     * Template ID of the SBE message.
+     *
+     * @return template ID of the SBE message.
+     */
     public int templateId()
     {
         return templateId;
     }
 
+    /**
+     * Get {@link ArchiveEventCode#id()} from {@link #id()}.
+     *
+     * @return get {@link ArchiveEventCode#id()} from {@link #id()}.
+     */
+    public int toEventCodeId()
+    {
+        return EVENT_CODE_TYPE << 16 | (id() & 0xFFFF);
+    }
+
+    /**
+     * Get {@link ArchiveEventCode} from its event code id.
+     *
+     * @param eventCodeId to convert.
+     * @return {@link ArchiveEventCode} from its event code id.
+     */
+    public static ArchiveEventCode fromEventCodeId(final int eventCodeId)
+    {
+        return get(eventCodeId - (EVENT_CODE_TYPE << 16));
+    }
+
+    /**
+     * Decode an event serialised in a buffer to a provided {@link StringBuilder}.
+     *
+     * @param buffer  containing the encoded event.
+     * @param offset  offset at which the event begins.
+     * @param builder to write the decoded event to.
+     */
     public void decode(final MutableDirectBuffer buffer, final int offset, final StringBuilder builder)
     {
         dissector.dissect(this, buffer, offset, builder);

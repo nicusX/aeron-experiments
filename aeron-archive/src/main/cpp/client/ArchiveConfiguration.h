@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ struct CredentialsSupplier
 namespace Configuration
 {
 constexpr const std::uint8_t ARCHIVE_MAJOR_VERSION = 1;
-constexpr const std::uint8_t ARCHIVE_MINOR_VERSION = 5;
+constexpr const std::uint8_t ARCHIVE_MINOR_VERSION = 7;
 constexpr const std::uint8_t ARCHIVE_PATCH_VERSION = 0;
 constexpr const std::int32_t ARCHIVE_SEMANTIC_VERSION = aeron::util::semanticVersionCompose(
     ARCHIVE_MAJOR_VERSION, ARCHIVE_MINOR_VERSION, ARCHIVE_PATCH_VERSION);
@@ -170,11 +170,8 @@ public:
             m_ownsAeronClient = true;
         }
 
-        std::shared_ptr<ChannelUri> channelUri = ChannelUri::parse(m_controlRequestChannel);
-        channelUri->put(TERM_LENGTH_PARAM_NAME, std::to_string(m_controlTermBufferLength));
-        channelUri->put(MTU_LENGTH_PARAM_NAME, std::to_string(m_controlMtuLength));
-        channelUri->put(SPARSE_PARAM_NAME, m_controlTermBufferSparse ? "true" : "false");
-        m_controlRequestChannel = channelUri->toString();
+        applyDefaultParams(m_controlRequestChannel);
+        applyDefaultParams(m_controlResponseChannel);
     }
 
     /**
@@ -545,6 +542,26 @@ private:
     exception_handler_t m_errorHandler = nullptr;
 
     CredentialsSupplier m_credentialsSupplier;
+
+    inline void applyDefaultParams(std::string &channel)
+    {
+        std::shared_ptr<ChannelUri> uri = ChannelUri::parse(channel);
+
+        if (!uri->containsKey(TERM_LENGTH_PARAM_NAME))
+        {
+            uri->put(TERM_LENGTH_PARAM_NAME, std::to_string(m_controlTermBufferLength));
+        }
+        if (!uri->containsKey(MTU_LENGTH_PARAM_NAME))
+        {
+            uri->put(MTU_LENGTH_PARAM_NAME, std::to_string(m_controlMtuLength));
+        }
+        if (!uri->containsKey(SPARSE_PARAM_NAME))
+        {
+            uri->put(SPARSE_PARAM_NAME, m_controlTermBufferSparse ? "true" : "false");
+        }
+
+        channel = uri->toString();
+    }
 };
 
 }}}

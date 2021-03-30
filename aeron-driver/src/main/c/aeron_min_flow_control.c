@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -146,9 +146,7 @@ int64_t aeron_min_flow_control_strategy_process_sm(
     {
         int ensure_capacity_result = 0;
         AERON_ARRAY_ENSURE_CAPACITY(
-            ensure_capacity_result,
-            strategy_state->receivers,
-            aeron_min_flow_control_strategy_receiver_t);
+            ensure_capacity_result,strategy_state->receivers, aeron_min_flow_control_strategy_receiver_t);
 
         if (ensure_capacity_result >= 0)
         {
@@ -173,7 +171,7 @@ int64_t aeron_min_flow_control_strategy_process_sm(
     {
         return snd_lmt;
     }
-    else if (strategy_state->receivers.length == 0)
+    else if (0 == strategy_state->receivers.length)
     {
         return snd_lmt > position_plus_window ? snd_lmt : position_plus_window;
     }
@@ -226,11 +224,12 @@ int64_t aeron_tagged_flow_control_strategy_on_sm(
 
     if (0 != bytes_read && !was_present)
     {
-        aeron_distinct_error_log_record(
-            strategy_state->error_log,
+        AERON_SET_ERR(
             EINVAL,
-            "invalid group tag on status message",
+            "%s",
             "Received a status message for tagged flow control that did not have 0 or 8 bytes for the group_tag");
+        aeron_distinct_error_log_record(strategy_state->error_log, aeron_errcode(), aeron_errmsg());
+        aeron_err_clear();
     }
 
     const bool matches_tag = was_present && receiver_group_tag == strategy_state->group_tag;
@@ -302,8 +301,7 @@ int aeron_tagged_flow_control_strategy_supplier_init(
         options.timeout_ns.value : context->flow_control.receiver_timeout_ns;
     state->group_min_size = options.group_min_size.is_present ?
         options.group_min_size.value : context->flow_control.group_min_size;
-    state->group_tag = options.group_tag.is_present ?
-        options.group_tag.value : context->flow_control.group_tag;
+    state->group_tag = options.group_tag.is_present ? options.group_tag.value : context->flow_control.group_tag;
 
     state->error_log = context->error_log;
 
@@ -349,8 +347,8 @@ int aeron_tagged_flow_control_strategy_to_string(
     return snprintf(
         buffer,
         buffer_len - 1,
-        "group_tag: %" PRId64 ", group_min_size: %" PRId32 ", receiver_count: %" PRIu32,
+        "group_tag: %" PRId64 ", group_min_size: %" PRId32 ", receiver_count: %" PRIu64,
         strategy_state->group_tag,
         strategy_state->group_min_size,
-        (uint32_t)strategy_state->receivers.length);
+        (uint64_t)strategy_state->receivers.length);
 }

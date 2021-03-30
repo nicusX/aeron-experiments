@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,13 +25,15 @@ int aeron_receive_destination_create(
     aeron_driver_context_t *context,
     aeron_counters_manager_t *counters_manager,
     int64_t registration_id,
-    int32_t channel_status_counter_id)
+    int32_t channel_status_counter_id,
+    size_t socket_rcvbuf,
+    size_t socket_sndbuf)
 {
     aeron_receive_destination_t *_destination = NULL;
 
     if (aeron_alloc((void **)&_destination, sizeof(aeron_receive_destination_t)) < 0)
     {
-        aeron_set_err_from_last_err_code("could not allocate receive_channel_endpoint");
+        AERON_APPEND_ERR("%s", "could not allocate receive_channel_endpoint");
         return -1;
     }
 
@@ -41,18 +43,19 @@ int aeron_receive_destination_create(
     _destination->transport.data_paths = _destination->data_paths;
     _destination->local_sockaddr_indicator.counter_id = AERON_NULL_COUNTER_ID;
 
+
     if (context->udp_channel_transport_bindings->init_func(
         &_destination->transport,
         &channel->remote_data,
         &channel->local_data,
         channel->interface_index,
         0 != channel->multicast_ttl ? channel->multicast_ttl : context->multicast_ttl,
-        context->socket_rcvbuf,
-        context->socket_sndbuf,
+        socket_rcvbuf,
+        socket_sndbuf,
         context,
         AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_RECEIVER) < 0)
     {
-        aeron_set_err(aeron_errcode(), "%s: uri=%s", aeron_errmsg(), channel->original_uri);
+        AERON_APPEND_ERR("uri = %s", channel->original_uri);
         aeron_receive_destination_delete(_destination, counters_manager);
         return -1;
     }
@@ -87,7 +90,7 @@ int aeron_receive_destination_create(
     }
 
     _destination->transport.destination_clientd = _destination;
-    _destination->time_of_last_activity_ns = aeron_clock_cached_nano_time(context->cached_clock);
+    _destination->time_of_last_activity_ns = aeron_clock_cached_nano_time(context->receiver_cached_clock);
 
     if (channel->is_multicast)
     {

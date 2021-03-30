@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -55,7 +55,7 @@ int aeron_driver_sender_init(
             context->mtu_length,
             AERON_CACHE_LINE_LENGTH) < 0)
         {
-            aeron_set_err_from_last_err_code("%s:%d", __FILE__, __LINE__);
+            AERON_APPEND_ERR("%s", "Failed to allocate sender->recv_buffers");
             return -1;
         }
 
@@ -96,21 +96,18 @@ int aeron_driver_sender_init(
     sender->duty_cycle_ratio = context->send_to_sm_poll_ratio;
     sender->status_message_read_timeout_ns = context->status_message_timeout_ns / 2;
     sender->control_poll_timeout_ns = 0;
-    sender->total_bytes_sent_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_BYTES_SENT);
-    sender->errors_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_ERRORS);
-    sender->invalid_frames_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_INVALID_PACKETS);
-    sender->status_messages_received_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_STATUS_MESSAGES_RECEIVED);
-    sender->nak_messages_received_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_NAK_MESSAGES_RECEIVED);
-    sender->resolution_changes_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_RESOLUTION_CHANGES);
+    sender->total_bytes_sent_counter = aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_BYTES_SENT);
+    sender->errors_counter = aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_ERRORS);
+    sender->invalid_frames_counter = aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_INVALID_PACKETS);
+    sender->status_messages_received_counter = aeron_system_counter_addr(
+        system_counters, AERON_SYSTEM_COUNTER_STATUS_MESSAGES_RECEIVED);
+    sender->nak_messages_received_counter = aeron_system_counter_addr(
+        system_counters, AERON_SYSTEM_COUNTER_NAK_MESSAGES_RECEIVED);
+    sender->resolution_changes_counter = aeron_system_counter_addr(
+        system_counters, AERON_SYSTEM_COUNTER_RESOLUTION_CHANGES);
 
-    sender->re_resolution_deadline_ns =
-        aeron_clock_cached_nano_time(context->cached_clock) + context->re_resolution_check_interval_ns;
+    int64_t now_ns = context->nano_clock();
+    sender->re_resolution_deadline_ns = now_ns + context->re_resolution_check_interval_ns;
 
     return 0;
 }
@@ -132,15 +129,15 @@ void aeron_driver_sender_on_command(void *clientd, void *item)
 int aeron_driver_sender_do_work(void *clientd)
 {
     aeron_driver_sender_t *sender = (aeron_driver_sender_t *)clientd;
-    int work_count = 0;
 
-    work_count += (int)aeron_spsc_concurrent_array_queue_drain(
-        sender->sender_proxy.command_queue, aeron_driver_sender_on_command, sender, 10);
+    int64_t now_ns = sender->context->nano_clock();
+    aeron_clock_update_cached_nano_time(sender->context->sender_cached_clock, now_ns);
 
-    int64_t now_ns = aeron_clock_cached_nano_time(sender->context->cached_clock);
+    int work_count = (int)aeron_spsc_concurrent_array_queue_drain(
+        sender->sender_proxy.command_queue, aeron_driver_sender_on_command, sender, AERON_COMMAND_DRAIN_LIMIT);
+
     int64_t bytes_received = 0;
     int bytes_sent = aeron_driver_sender_do_send(sender, now_ns);
-    int poll_result;
 
     if (0 == bytes_sent ||
         ++sender->duty_cycle_counter >= sender->duty_cycle_ratio ||
@@ -160,7 +157,7 @@ int aeron_driver_sender_do_work(void *clientd)
             mmsghdr[i].msg_len = 0;
         }
 
-        poll_result = sender->poller_poll_func(
+        int poll_result = sender->poller_poll_func(
             &sender->poller,
             mmsghdr,
             AERON_DRIVER_SENDER_NUM_RECV_BUFFERS,
@@ -171,7 +168,8 @@ int aeron_driver_sender_do_work(void *clientd)
 
         if (poll_result < 0)
         {
-            AERON_DRIVER_SENDER_ERROR(sender, "sender poller_poll: %s", aeron_errmsg());
+            AERON_APPEND_ERR("%s", "sender poller_poll");
+            aeron_driver_sender_log_error(sender);
         }
 
         if (sender->context->re_resolution_check_interval_ns > 0 && (sender->re_resolution_deadline_ns - now_ns) < 0)
@@ -182,13 +180,13 @@ int aeron_driver_sender_do_work(void *clientd)
             sender->re_resolution_deadline_ns = now_ns + sender->context->re_resolution_check_interval_ns;
         }
 
-        work_count += (poll_result < 0) ? 0 : poll_result;
+        work_count += (poll_result < 0 ? 0 : poll_result);
 
         sender->duty_cycle_counter = 0;
         sender->control_poll_timeout_ns = now_ns + sender->status_message_read_timeout_ns;
     }
 
-    return work_count + bytes_sent;
+    return work_count + bytes_sent + (int)bytes_received;
 }
 
 void aeron_driver_sender_on_close(void *clientd)
@@ -219,13 +217,14 @@ void aeron_driver_sender_on_add_endpoint(void *clientd, void *command)
         NULL,
         AERON_UDP_CHANNEL_INTERCEPTOR_ADD_NOTIFICATION) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(
-            sender, "sender on_add_endpoint interceptors transport notifications: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_add_endpoint interceptors transport notifications");
+        aeron_driver_sender_log_error(sender);
     }
 
     if (sender->context->udp_channel_transport_bindings->poller_add_func(&sender->poller, &endpoint->transport) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(sender, "sender on_add_endpoint: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_add_endpoint");
+        aeron_driver_sender_log_error(sender);
     }
 }
 
@@ -242,13 +241,14 @@ void aeron_driver_sender_on_remove_endpoint(void *clientd, void *command)
         NULL,
         AERON_UDP_CHANNEL_INTERCEPTOR_REMOVE_NOTIFICATION) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(
-            sender, "sender on_remove_endpoint interceptors transport notifications: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_remove_endpoint interceptors transport notifications");
+        aeron_driver_sender_log_error(sender);
     }
 
     if (sender->context->udp_channel_transport_bindings->poller_remove_func(&sender->poller, &endpoint->transport) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(sender, "sender on_remove_endpoint: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_remove_endpoint");
+        aeron_driver_sender_log_error(sender);
     }
 
     aeron_send_channel_endpoint_sender_release(endpoint);
@@ -267,21 +267,23 @@ void aeron_driver_sender_on_add_publication(void *clientd, void *command)
 
     if (ensure_capacity_result < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(sender, "sender on_add_publication: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_add_publication");
+        aeron_driver_sender_log_error(sender);
         return;
     }
 
     sender->network_publications.array[sender->network_publications.length++].publication = publication;
     if (aeron_send_channel_endpoint_add_publication(publication->endpoint, publication) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(sender, "sender on_add_publication add_publication: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_add_publication add_publication");
+        aeron_driver_sender_log_error(sender);
     }
 
     if (aeron_udp_channel_interceptors_publication_notifications(
         transport->data_paths, transport, publication, AERON_UDP_CHANNEL_INTERCEPTOR_ADD_NOTIFICATION) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(
-            sender, "sender on_add_publication interceptors publication notifications: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_add_publication interceptors publication notifications");
+        aeron_driver_sender_log_error(sender);
     }
 }
 
@@ -308,14 +310,15 @@ void aeron_driver_sender_on_remove_publication(void *clientd, void *command)
 
     if (aeron_send_channel_endpoint_remove_publication(publication->endpoint, publication) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(sender, "sender on_remove_publication: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_remove_publication");
+        aeron_driver_sender_log_error(sender);
     }
 
     if (aeron_udp_channel_interceptors_publication_notifications(
         transport->data_paths, transport, publication, AERON_UDP_CHANNEL_INTERCEPTOR_ADD_NOTIFICATION) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(
-            sender, "sender on_remove_publication interceptors publication notifications: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_remove_publication interceptors publication notifications");
+        aeron_driver_sender_log_error(sender);
     }
 
     aeron_network_publication_sender_release(publication);
@@ -328,7 +331,8 @@ void aeron_driver_sender_on_add_destination(void *clientd, void *command)
 
     if (aeron_send_channel_endpoint_add_destination(cmd->endpoint, cmd->uri, &cmd->control_address) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(sender, "sender on_add_destination: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_add_destination");
+        aeron_driver_sender_log_error(sender);
     }
 }
 
@@ -340,7 +344,8 @@ void aeron_driver_sender_on_remove_destination(void *clientd, void *command)
 
     if (aeron_send_channel_endpoint_remove_destination(cmd->endpoint, &cmd->control_address, &old_uri) < 0)
     {
-        AERON_DRIVER_SENDER_ERROR(sender, "sender on_remove_destination: %s", aeron_errmsg());
+        AERON_APPEND_ERR("%s", "sender on_remove_destination");
+        aeron_driver_sender_log_error(sender);
     }
 
     if (NULL != old_uri)
@@ -377,7 +382,8 @@ int aeron_driver_sender_do_send(aeron_driver_sender_t *sender, int64_t now_ns)
         int result = aeron_network_publication_send(publications[i].publication, now_ns);
         if (result < 0)
         {
-            AERON_DRIVER_SENDER_ERROR(sender, "sender do_send: %s", aeron_errmsg());
+            AERON_APPEND_ERR("%s", "sender do_send");
+            aeron_driver_sender_log_error(sender);
         }
         else
         {
@@ -390,7 +396,8 @@ int aeron_driver_sender_do_send(aeron_driver_sender_t *sender, int64_t now_ns)
         int result = aeron_network_publication_send(publications[i].publication, now_ns);
         if (result < 0)
         {
-            AERON_DRIVER_SENDER_ERROR(sender, "sender do_send: %s", aeron_errmsg());
+            AERON_APPEND_ERR("%s", "sender do_send");
+            aeron_driver_sender_log_error(sender);
         }
         else
         {
@@ -402,3 +409,5 @@ int aeron_driver_sender_do_send(aeron_driver_sender_t *sender, int64_t now_ns)
 
     return bytes_sent;
 }
+
+extern void aeron_driver_sender_log_error(aeron_driver_sender_t *sender);

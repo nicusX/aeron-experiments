@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package io.aeron.archive.client;
 import io.aeron.ControlledFragmentAssembler;
 import io.aeron.Subscription;
 import io.aeron.archive.codecs.*;
-import io.aeron.logbuffer.ControlledFragmentHandler;
 import io.aeron.logbuffer.Header;
 import org.agrona.DirectBuffer;
 import org.agrona.ErrorHandler;
@@ -26,7 +25,7 @@ import org.agrona.ErrorHandler;
 /**
  * Encapsulate the polling, decoding, dispatching of recording descriptors from an archive.
  */
-public class RecordingDescriptorPoller implements ControlledFragmentHandler
+public final class RecordingDescriptorPoller
 {
     private final MessageHeaderDecoder messageHeaderDecoder = new MessageHeaderDecoder();
     private final ControlResponseDecoder controlResponseDecoder = new ControlResponseDecoder();
@@ -35,7 +34,7 @@ public class RecordingDescriptorPoller implements ControlledFragmentHandler
     private final long controlSessionId;
     private final int fragmentLimit;
     private final Subscription subscription;
-    private final ControlledFragmentAssembler fragmentAssembler = new ControlledFragmentAssembler(this);
+    private final ControlledFragmentAssembler fragmentAssembler = new ControlledFragmentAssembler(this::onFragment);
     private final ErrorHandler errorHandler;
 
     private long correlationId;
@@ -130,11 +129,12 @@ public class RecordingDescriptorPoller implements ControlledFragmentHandler
         isDispatchComplete = false;
     }
 
-    public Action onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)
+    ControlledFragmentAssembler.Action onFragment(
+        final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
         if (isDispatchComplete)
         {
-            return Action.ABORT;
+            return ControlledFragmentAssembler.Action.ABORT;
         }
 
         messageHeaderDecoder.wrap(buffer, offset);
@@ -163,7 +163,7 @@ public class RecordingDescriptorPoller implements ControlledFragmentHandler
                     if (ControlResponseCode.RECORDING_UNKNOWN == code && correlationId == this.correlationId)
                     {
                         isDispatchComplete = true;
-                        return Action.BREAK;
+                        return ControlledFragmentAssembler.Action.BREAK;
                     }
 
                     if (ControlResponseCode.ERROR == code)
@@ -218,15 +218,18 @@ public class RecordingDescriptorPoller implements ControlledFragmentHandler
                     if (0 == --remainingRecordCount)
                     {
                         isDispatchComplete = true;
-                        return Action.BREAK;
+                        return ControlledFragmentAssembler.Action.BREAK;
                     }
                 }
                 break;
         }
 
-        return Action.CONTINUE;
+        return ControlledFragmentAssembler.Action.CONTINUE;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "RecordingDescriptorPoller{" +

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,9 +45,11 @@ final class ArchiveEventEncoder
         encodingBuffer.putInt(offset + relativeOffset, captureLength - (SIZE_OF_LONG + SIZE_OF_INT), LITTLE_ENDIAN);
         relativeOffset += SIZE_OF_INT;
 
-        relativeOffset += encodingBuffer.putStringWithoutLengthAscii(offset + relativeOffset, from.name());
+        final String fromName = null == from ? "null" : from.name();
+        final String toName = null == to ? "null" : to.name();
+        relativeOffset += encodingBuffer.putStringWithoutLengthAscii(offset + relativeOffset, fromName);
         relativeOffset += encodingBuffer.putStringWithoutLengthAscii(offset + relativeOffset, STATE_SEPARATOR);
-        relativeOffset += encodingBuffer.putStringWithoutLengthAscii(offset + relativeOffset, to.name());
+        relativeOffset += encodingBuffer.putStringWithoutLengthAscii(offset + relativeOffset, toName);
 
         return relativeOffset;
     }
@@ -92,5 +94,4 @@ final class ArchiveEventEncoder
 
         encodingBuffer.putLong(offset + relativeOffset, newCatalogLength, LITTLE_ENDIAN);
     }
-
 }

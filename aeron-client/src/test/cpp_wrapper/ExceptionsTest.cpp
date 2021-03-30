@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,14 +38,14 @@ public:
 
 TEST_F(ExceptionsTest, shouldThrowAppropriateType)
 {
-    aeron_set_err(EINVAL, "Invalid argument");
+    AERON_SET_ERR(EINVAL, "%s", "Invalid argument");
     ASSERT_THROW(
         {
             AERON_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;
         },
         IllegalArgumentException);
 
-    aeron_set_err(EPERM, "Invalid argument");
+    AERON_SET_ERR(EPERM, "%s", "Invalid argument");
     ASSERT_THROW(
         {
             AERON_MAP_ERRNO_TO_SOURCED_EXCEPTION_AND_THROW;

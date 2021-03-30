@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -235,8 +235,8 @@ public class AeronStat
                     "filter by optional regex patterns:%n" +
                     "\t[type=<pattern>]%n" +
                     "\t[identity=<pattern>]%n" +
-                    "\t[sessionId=<pattern>]%n" +
-                    "\t[streamId=<pattern>]%n" +
+                    "\t[session=<pattern>]%n" +
+                    "\t[stream=<pattern>]%n" +
                     "\t[channel=<pattern>]%n");
 
                 System.exit(0);

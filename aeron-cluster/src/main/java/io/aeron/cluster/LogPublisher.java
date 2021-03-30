@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import static io.aeron.logbuffer.FrameDescriptor.FRAME_ALIGNMENT;
 import static io.aeron.protocol.DataHeaderFlyweight.HEADER_LENGTH;
 import static org.agrona.BitUtil.align;
 
-class LogPublisher
+final class LogPublisher
 {
     private static final int SEND_ATTEMPTS = 3;
 
@@ -97,17 +97,17 @@ class LogPublisher
         return publication.sessionId();
     }
 
-    void addPassiveFollower(final String followerLogEndpoint)
+    void addDestination(final boolean isLogChannelMultiDestination, final String followerLogEndpoint)
     {
-        if (null != publication)
+        if (isLogChannelMultiDestination && null != publication)
         {
             publication.asyncAddDestination("aeron:udp?endpoint=" + followerLogEndpoint);
         }
     }
 
-    void removePassiveFollower(final String followerLogEndpoint)
+    void removeDestination(final boolean isLogChannelMultiDestination, final String followerLogEndpoint)
     {
-        if (null != publication)
+        if (isLogChannelMultiDestination && null != publication)
         {
             publication.asyncRemoveDestination("aeron:udp?endpoint=" + followerLogEndpoint);
         }
@@ -160,7 +160,7 @@ class LogPublisher
             .responseChannel(channel)
             .putEncodedPrincipal(encodedPrincipal, 0, encodedPrincipal.length);
 
-        final int length = sessionOpenEventEncoder.encodedLength() + MessageHeaderEncoder.ENCODED_LENGTH;
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + sessionOpenEventEncoder.encodedLength();
 
         int attempts = SEND_ATTEMPTS;
         do
@@ -237,14 +237,13 @@ class LogPublisher
     boolean appendClusterAction(final long leadershipTermId, final long timestamp, final ClusterAction action)
     {
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + ClusterActionRequestEncoder.BLOCK_LENGTH;
-        final int fragmentLength = DataHeaderFlyweight.HEADER_LENGTH +
-            MessageHeaderEncoder.ENCODED_LENGTH +
-            ClusterActionRequestEncoder.BLOCK_LENGTH;
+        final int fragmentLength = DataHeaderFlyweight.HEADER_LENGTH + length;
+        final int alignedFragmentLength = align(fragmentLength, FRAME_ALIGNMENT);
 
         int attempts = SEND_ATTEMPTS;
         do
         {
-            final long logPosition = publication.position() + BitUtil.align(fragmentLength, FRAME_ALIGNMENT);
+            final long logPosition = publication.position() + alignedFragmentLength;
             final long result = publication.tryClaim(length, bufferClaim);
 
             if (result > 0)
@@ -277,15 +276,15 @@ class LogPublisher
         final int appVersion)
     {
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + NewLeadershipTermEventEncoder.BLOCK_LENGTH;
-        final int fragmentLength = DataHeaderFlyweight.HEADER_LENGTH +
-            MessageHeaderEncoder.ENCODED_LENGTH +
-            NewLeadershipTermEventEncoder.BLOCK_LENGTH;
+        final int fragmentLength = DataHeaderFlyweight.HEADER_LENGTH + length;
+        final int alignedFragmentLength = align(fragmentLength, FRAME_ALIGNMENT);
 
         int attempts = SEND_ATTEMPTS;
         do
         {
-            final long logPosition = publication.position() + BitUtil.align(fragmentLength, FRAME_ALIGNMENT);
+            final long logPosition = publication.position() + alignedFragmentLength;
             final long result = publication.tryClaim(length, bufferClaim);
+
             if (result > 0)
             {
                 newLeadershipTermEventEncoder.wrapAndApplyHeader(
@@ -319,24 +318,27 @@ class LogPublisher
         final int memberId,
         final String clusterMembers)
     {
-        long result;
         final int fragmentedLength = computeMembershipChangeEventFragmentedLength(clusterMembers);
 
+        membershipChangeEventEncoder
+            .wrapAndApplyHeader(expandableArrayBuffer, 0, messageHeaderEncoder)
+            .leadershipTermId(leadershipTermId)
+            .timestamp(timestamp)
+            .leaderMemberId(leaderMemberId)
+            .clusterSize(clusterSize)
+            .changeType(changeType)
+            .memberId(memberId)
+            .clusterMembers(clusterMembers);
+
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + membershipChangeEventEncoder.encodedLength();
         int attempts = SEND_ATTEMPTS;
+        long result;
         do
         {
             membershipChangeEventEncoder
-                .wrapAndApplyHeader(expandableArrayBuffer, 0, messageHeaderEncoder)
-                .leadershipTermId(leadershipTermId)
-                .logPosition(publication.position() + fragmentedLength)
-                .timestamp(timestamp)
-                .leaderMemberId(leaderMemberId)
-                .clusterSize(clusterSize)
-                .changeType(changeType)
-                .memberId(memberId)
-                .clusterMembers(clusterMembers);
+                .wrap(expandableArrayBuffer, MessageHeaderEncoder.ENCODED_LENGTH)
+                .logPosition(publication.position() + fragmentedLength);
 
-            final int length = membershipChangeEventEncoder.encodedLength() + MessageHeaderEncoder.ENCODED_LENGTH;
             result = publication.offer(expandableArrayBuffer, 0, length, null);
             if (result > 0)
             {

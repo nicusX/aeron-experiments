@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * This is a Basic Aeron subscriber application.
  * <p>
- * The application subscribes to a default channel and stream ID.  These defaults can
+ * The application subscribes to a default channel and stream ID. These defaults can
  * be overwritten by changing their value in {@link SampleConfiguration} or by
  * setting their corresponding Java system properties at the command line, e.g.:
  * -Daeron.sample.channel=aeron:udp?endpoint=localhost:5555 -Daeron.sample.streamId=20

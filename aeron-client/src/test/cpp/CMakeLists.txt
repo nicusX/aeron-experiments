@@ -1,5 +1,5 @@
 #
-# Copyright 2014-2020 Real Logic Limited.
+# Copyright 2014-2021 Real Logic Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -66,4 +66,3 @@ aeron_client_test(errorLogReaderTest concurrent/ErrorLogReaderTest.cpp)
 aeron_client_test(oneToOneRingBufferTest concurrent/OneToOneRingBufferTest.cpp)
 aeron_client_test(channelUriStringBuilderTest ChannelUriStringBuilderTest.cpp)
 aeron_client_test(channelUriTest ChannelUriTest.cpp)
-#aeron_client_test(systemTest SystemTest.cpp)

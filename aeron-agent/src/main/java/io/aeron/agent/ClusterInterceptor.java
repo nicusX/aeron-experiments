@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,9 +22,6 @@ import net.bytebuddy.asm.Advice;
 import static io.aeron.agent.ClusterEventCode.*;
 import static io.aeron.agent.ClusterEventLogger.LOGGER;
 
-/**
- * Intercepts calls in the cluster which relate to state changes.
- */
 class ClusterInterceptor
 {
     static class ElectionStateChange
@@ -43,7 +40,9 @@ class ClusterInterceptor
             final long logLeadershipTermId,
             final long logTruncatePosition,
             final long leadershipTermId,
+            final long termBaseLogPosition,
             final long logPosition,
+            final long leaderRecordingId,
             final long timestamp,
             final int leaderMemberId,
             final int logSessionId,
@@ -53,7 +52,9 @@ class ClusterInterceptor
                 logLeadershipTermId,
                 logTruncatePosition,
                 leadershipTermId,
+                termBaseLogPosition,
                 logPosition,
+                leaderRecordingId,
                 timestamp,
                 leaderMemberId,
                 logSessionId,
@@ -77,6 +78,26 @@ class ClusterInterceptor
         static void roleChange(final Cluster.Role oldRole, final Cluster.Role newRole, final int memberId)
         {
             LOGGER.logStateChange(ROLE_CHANGE, oldRole, newRole, memberId);
+        }
+    }
+
+    static class CanvassPosition
+    {
+        @Advice.OnMethodEnter
+        static void onCanvassPosition(
+            final long logLeadershipTermId, final long logPosition, final int followerMemberId)
+        {
+            LOGGER.logCanvassPosition(logLeadershipTermId, logPosition, followerMemberId);
+        }
+    }
+
+    static class RequestVote
+    {
+        @Advice.OnMethodEnter
+        static void onRequestVote(
+            final long logLeadershipTermId, final long logPosition, final long candidateTermId, final int candidateId)
+        {
+            LOGGER.logRequestVote(logLeadershipTermId, logPosition, candidateTermId, candidateId);
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -95,8 +95,8 @@ public final class CTestMediaDriver implements TestMediaDriver
 
     public CountersReader counters()
     {
-        final Aeron.Context context =
-            new Aeron.Context().aeronDirectoryName(this.context.aeronDirectoryName()).conclude();
+        final Aeron.Context context = new Aeron.Context()
+            .aeronDirectoryName(this.context.aeronDirectoryName()).conclude();
         return new CountersReader(context.countersMetaDataBuffer(), context.countersValuesBuffer());
     }
 
@@ -167,6 +167,9 @@ public final class CTestMediaDriver implements TestMediaDriver
         {
             environment.put("AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR", context.resolverBootstrapNeighbor());
         }
+        environment.put("AERON_SOCKET_SO_RCVBUF", String.valueOf(context.socketRcvbufLength()));
+        environment.put("AERON_SOCKET_SO_SNDBUF", String.valueOf(context.socketSndbufLength()));
+        environment.put("AERON_RCV_INITIAL_WINDOW_LENGTH", String.valueOf(context.initialWindowLength()));
 
         setFlowControlStrategy(environment, context);
         setLogging(environment);
@@ -203,7 +206,7 @@ public final class CTestMediaDriver implements TestMediaDriver
 
     private static void setLogging(final Map<String, String> environment)
     {
-        environment.put("AERON_EVENT_LOG", "all");
+        environment.put("AERON_EVENT_LOG", "admin");
 
         final String driverAgentPath = System.getProperty(DRIVER_AGENT_PATH_PROP_NAME);
         if (null == driverAgentPath)
@@ -232,7 +235,7 @@ public final class CTestMediaDriver implements TestMediaDriver
         else if (null != multicastFlowControlSupplier)
         {
             throw new RuntimeException("No equivalent C multicast flow control strategy for: " +
-                multicastFlowControlSupplier.getClass().getSimpleName());
+                multicastFlowControlSupplier.getClass().getName());
         }
 
         final FlowControlSupplier unicastFlowControlSupplier = context.unicastFlowControlSupplier();
@@ -244,7 +247,7 @@ public final class CTestMediaDriver implements TestMediaDriver
         else if (null != unicastFlowControlSupplier)
         {
             throw new RuntimeException("No equivalent C unicast flow control strategy for: " +
-                multicastFlowControlSupplier.getClass().getSimpleName());
+                multicastFlowControlSupplier.getClass().getName());
         }
     }
 

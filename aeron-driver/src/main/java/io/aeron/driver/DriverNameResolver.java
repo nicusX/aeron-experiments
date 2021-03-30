@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,13 +44,13 @@ import static org.agrona.BitUtil.CACHE_LINE_LENGTH;
 /**
  * Default {@link NameResolver} for the {@link MediaDriver}.
  */
-class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.UdpFrameHandler, NameResolver
+final class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.UdpFrameHandler, NameResolver
 {
     // TODO: make these configurable
     private static final long SELF_RESOLUTION_INTERVAL_MS = TimeUnit.SECONDS.toMillis(1);
     private static final long NEIGHBOR_RESOLUTION_INTERVAL_MS = TimeUnit.SECONDS.toMillis(2);
     private static final long TIMEOUT_MS = TimeUnit.SECONDS.toMillis(10);
-    private static final long DUTY_CYCLE_INTERVAL_MS = 10;
+    private static final long WORK_INTERVAL_MS = 10;
 
     private final ByteBuffer byteBuffer = BufferUtil.allocateDirectAligned(
         Configuration.MAX_UDP_PAYLOAD_LENGTH, CACHE_LINE_LENGTH);
@@ -76,7 +76,7 @@ class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.Ud
 
     private final String bootstrapNeighbor;
     private InetSocketAddress bootstrapNeighborAddress;
-    private long timeOfLastBootstrapNeighborResolveMs;
+    private long bootstrapNeighborResolveDeadlineMs;
 
     private final long neighborTimeoutMs = TIMEOUT_MS;
     private final long selfResolutionIntervalMs = SELF_RESOLUTION_INTERVAL_MS;
@@ -84,7 +84,7 @@ class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.Ud
     private final int mtuLength;
     private final boolean preferIPv6 = false;
 
-    private long timeOfLastWorkMs = 0;
+    private long workDeadlineMs = 0;
     private long selfResolutionDeadlineMs;
     private long neighborResolutionDeadlineMs;
 
@@ -100,7 +100,7 @@ class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.Ud
         bootstrapNeighbor = ctx.resolverBootstrapNeighbor();
         bootstrapNeighborAddress = null == bootstrapNeighbor ?
             null : UdpNameResolutionTransport.getInetSocketAddress(bootstrapNeighbor);
-        timeOfLastBootstrapNeighborResolveMs = nowMs;
+        bootstrapNeighborResolveDeadlineMs = nowMs + TIMEOUT_MS;
 
         localSocketAddress = null != ctx.resolverInterface() ?
             UdpNameResolutionTransport.getInterfaceAddress(ctx.resolverInterface()) :
@@ -142,8 +142,9 @@ class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.Ud
     {
         int workCount = 0;
 
-        if ((timeOfLastWorkMs + DUTY_CYCLE_INTERVAL_MS) < nowMs)
+        if (nowMs > workDeadlineMs)
         {
+            workDeadlineMs = nowMs + WORK_INTERVAL_MS;
             workCount += transport.poll(this, nowMs);
             workCount += cache.timeoutOldEntries(nowMs, cacheEntriesCounter);
             workCount += timeoutNeighbors(nowMs);
@@ -157,8 +158,6 @@ class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.Ud
             {
                 sendNeighborResolutions(nowMs);
             }
-
-            timeOfLastWorkMs = nowMs;
         }
 
         return workCount;
@@ -198,7 +197,7 @@ class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.Ud
 
             return InetAddress.getByAddress(entry.address);
         }
-        catch (final UnknownHostException ex)
+        catch (final UnknownHostException ignore)
         {
             return null;
         }
@@ -260,6 +259,23 @@ class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.Ud
         return canonicalName;
     }
 
+    static String getCanonicalName(final String fallback)
+    {
+        String canonicalName;
+
+        try
+        {
+            canonicalName = InetAddress.getLocalHost().getHostName();
+        }
+        catch (final UnknownHostException ignore)
+        {
+            canonicalName = fallback;
+        }
+
+        return canonicalName;
+    }
+
+
     private void openDatagramChannel()
     {
         transport.openDatagramChannel(null);
@@ -303,7 +319,11 @@ class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.Ud
             }
         }
 
-        neighborsCounter.setOrdered(neighborList.size());
+        final int neighborCount = neighborList.size();
+        if (neighborsCounter.getWeak() != neighborCount)
+        {
+            neighborsCounter.setOrdered(neighborCount);
+        }
 
         return workCount;
     }
@@ -348,10 +368,10 @@ class DriverNameResolver implements AutoCloseable, UdpNameResolutionTransport.Ud
 
         if (sendToBootstrap)
         {
-            if (nowMs > (timeOfLastBootstrapNeighborResolveMs + TIMEOUT_MS))
+            if (nowMs > bootstrapNeighborResolveDeadlineMs)
             {
                 bootstrapNeighborAddress = UdpNameResolutionTransport.getInetSocketAddress(bootstrapNeighbor);
-                timeOfLastBootstrapNeighborResolveMs = nowMs;
+                bootstrapNeighborResolveDeadlineMs = nowMs + TIMEOUT_MS;
             }
 
             sendResolutionFrameTo(byteBuffer, bootstrapNeighborAddress);

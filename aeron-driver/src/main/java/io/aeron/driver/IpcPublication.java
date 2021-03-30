@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -176,11 +176,17 @@ public final class IpcPublication implements DriverManagedResource, Subscribable
         return publisherLimit.id();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean free()
     {
         return rawLog.free();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
         CloseHelper.close(errorHandler, publisherPos);
@@ -199,18 +205,24 @@ public final class IpcPublication implements DriverManagedResource, Subscribable
         CloseHelper.close(errorHandler, rawLog);
     }
 
-    public void addSubscriber(final SubscriptionLink subscriptionLink, final ReadablePosition subscriberPosition)
+    /**
+     * {@inheritDoc}
+     */
+    public void addSubscriber(
+        final SubscriptionLink subscriptionLink, final ReadablePosition subscriberPosition, final long nowNs)
     {
         subscriberPositions = ArrayUtil.add(subscriberPositions, subscriberPosition);
         if (!subscriptionLink.isTether())
         {
-            untetheredSubscriptions.add(new UntetheredSubscription(
-                subscriptionLink, subscriberPosition, timeOfLastConsumerPositionUpdateNs));
+            untetheredSubscriptions.add(new UntetheredSubscription(subscriptionLink, subscriberPosition, nowNs));
         }
 
         LogBufferDescriptor.isConnected(metaDataBuffer, true);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void removeSubscriber(final SubscriptionLink subscriptionLink, final ReadablePosition subscriberPosition)
     {
         updatePublisherLimit();
@@ -235,6 +247,9 @@ public final class IpcPublication implements DriverManagedResource, Subscribable
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onTimeEvent(final long timeNs, final long timeMs, final DriverConductor conductor)
     {
         switch (state)
@@ -275,6 +290,9 @@ public final class IpcPublication implements DriverManagedResource, Subscribable
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean hasReachedEndOfLife()
     {
         return reachedEndOfLife;

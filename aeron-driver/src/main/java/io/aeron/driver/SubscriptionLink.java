@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -180,6 +180,9 @@ public abstract class SubscriptionLink implements DriverManagedResource
         return !hasSessionId || this.sessionId == sessionId;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
         for (final Map.Entry<Subscribable, ReadablePosition> entry : positionBySubscribableMap.entrySet())
@@ -190,6 +193,9 @@ public abstract class SubscriptionLink implements DriverManagedResource
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onTimeEvent(final long timeNs, final long timeMs, final DriverConductor conductor)
     {
         if (aeronClient.hasTimedOut())
@@ -199,14 +205,20 @@ public abstract class SubscriptionLink implements DriverManagedResource
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean hasReachedEndOfLife()
     {
         return reachedEndOfLife;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
-        return this.getClass().getSimpleName() + "{" +
+        return this.getClass().getName() + "{" +
             "registrationId=" + registrationId +
             ", streamId=" + streamId +
             ", sessionId=" + sessionId +
@@ -322,8 +334,7 @@ class SpySubscriptionLink extends SubscriptionLink
     boolean matches(final NetworkPublication publication)
     {
         final UdpChannel publicationChannel = publication.channelEndpoint().udpChannel();
-        final boolean isSameChannelTag =
-            udpChannel.hasTag() && udpChannel.tag() == publicationChannel.tag();
+        final boolean isSameChannelTag = udpChannel.hasTag() && udpChannel.tag() == publicationChannel.tag();
 
         return streamId == publication.streamId() && (isSameChannelTag ||
             (isWildcardOrSessionIdMatch(publication.sessionId()) &&

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,9 +53,9 @@ public:
         m_toDriver.fill(0);
         m_toClients.fill(0);
         MemoryMappedFile::ptr_t logbuffer1 = MemoryMappedFile::createNew(
-            m_logFileName.c_str(), 0, static_cast<size_t>(LOG_FILE_LENGTH));
+            m_logFileName.c_str(), 0, static_cast<std::size_t>(LOG_FILE_LENGTH), false);
         MemoryMappedFile::ptr_t logbuffer2 = MemoryMappedFile::createNew(
-            m_logFileName2.c_str(), 0, static_cast<size_t>(LOG_FILE_LENGTH));
+            m_logFileName2.c_str(), 0, static_cast<std::size_t>(LOG_FILE_LENGTH), false);
         m_manyToOneRingBuffer.consumerHeartbeatTime(m_currentTime);
 
         AtomicBuffer logMetaDataBuffer;

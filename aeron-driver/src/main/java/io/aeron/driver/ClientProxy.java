@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import static io.aeron.command.ControlProtocolEvents.*;
 /**
  * Proxy for communicating from the driver to the client conductor.
  */
-class ClientProxy
+final class ClientProxy
 {
     private final MutableDirectBuffer buffer = new ExpandableArrayBuffer(1024);
     private final BroadcastTransmitter transmitter;

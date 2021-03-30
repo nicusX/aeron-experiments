@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -107,7 +107,7 @@ abstract class ExclusivePublicationValues extends ExclusivePublicationLhsPadding
  *
  * @see Aeron#addExclusivePublication(String, int)
  */
-public class ExclusivePublication extends ExclusivePublicationValues
+public final class ExclusivePublication extends ExclusivePublicationValues
 {
     byte p064, p065, p066, p067, p068, p069, p070, p071, p072, p073, p074, p075, p076, p077, p078, p079;
     byte p080, p081, p082, p083, p084, p085, p086, p087, p088, p089, p090, p091, p092, p093, p094, p095;
@@ -156,6 +156,9 @@ public class ExclusivePublication extends ExclusivePublicationValues
         termBeginPosition = LogBufferDescriptor.computeTermBeginPosition(termId, positionBitsToShift, initialTermId);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long position()
     {
         if (isClosed)
@@ -166,6 +169,9 @@ public class ExclusivePublication extends ExclusivePublicationValues
         return termBeginPosition + termOffset;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long availableWindow()
     {
         if (isClosed)

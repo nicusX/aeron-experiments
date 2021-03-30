@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -75,10 +75,10 @@ void poll_handler(void *clientd, const uint8_t *buffer, size_t length, aeron_hea
     aeron_header_values(header, &header_values);
 
     printf(
-        "Message to stream %" PRId32 " from session %" PRId32 " (%" PRIu32 " bytes) <<%*s>>\n",
+        "Message to stream %" PRId32 " from session %" PRId32 " (%" PRIu64 " bytes) <<%*s>>\n",
         subscription_constants.stream_id,
         header_values.frame.session_id,
-        (uint32_t)length,
+        (uint64_t)length,
         (int)length,
         buffer);
 }

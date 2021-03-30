@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,17 +18,14 @@ package io.aeron.agent;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.concurrent.ringbuffer.ManyToOneRingBuffer;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.concurrent.TimeUnit;
 
+import static io.aeron.agent.AgentTests.verifyLogHeader;
 import static io.aeron.agent.ClusterEventCode.NEW_LEADERSHIP_TERM;
 import static io.aeron.agent.ClusterEventCode.STATE_CHANGE;
-import static io.aeron.agent.CommonEventEncoder.STATE_SEPARATOR;
-import static io.aeron.agent.ClusterEventLogger.toEventCodeId;
-import static io.aeron.agent.AgentTests.verifyLogHeader;
 import static io.aeron.agent.CommonEventEncoder.LOG_HEADER_LENGTH;
+import static io.aeron.agent.CommonEventEncoder.STATE_SEPARATOR;
 import static io.aeron.agent.EventConfiguration.MAX_EVENT_LENGTH;
 import static java.nio.ByteBuffer.allocateDirect;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
@@ -47,13 +44,6 @@ class ClusterEventLoggerTest
     private final UnsafeBuffer logBuffer = new UnsafeBuffer(allocateDirect(CAPACITY + TRAILER_LENGTH));
     private final ClusterEventLogger logger = new ClusterEventLogger(new ManyToOneRingBuffer(logBuffer));
 
-    @ParameterizedTest
-    @EnumSource(ClusterEventCode.class)
-    void toEventCodeIdComputesEventId(final ClusterEventCode eventCode)
-    {
-        assertEquals(131072 + eventCode.id(), toEventCodeId(eventCode));
-    }
-
     @Test
     void logNewLeadershipTerm()
     {
@@ -66,20 +56,24 @@ class ClusterEventLoggerTest
         final long timestamp = 2;
         final int leaderMemberId = 0;
         final int logSessionId = 3;
-        final int captureLength = SIZE_OF_LONG * 5 + SIZE_OF_INT * 3;
+        final int captureLength = SIZE_OF_LONG * 7 + SIZE_OF_INT * 3;
         final boolean isStartup = true;
+        final long termBaseLogPosition = 982734;
+        final long leaderRecordingId = 76434;
 
         logger.logNewLeadershipTerm(
             logLeadershipTermId,
             logTruncatePosition,
             leadershipTermId,
+            termBaseLogPosition,
             logPosition,
+            leaderRecordingId,
             timestamp,
             leaderMemberId,
             logSessionId,
             isStartup);
 
-        verifyLogHeader(logBuffer, offset, toEventCodeId(NEW_LEADERSHIP_TERM), captureLength, captureLength);
+        verifyLogHeader(logBuffer, offset, NEW_LEADERSHIP_TERM.toEventCodeId(), captureLength, captureLength);
         int relativeOffset = LOG_HEADER_LENGTH;
         assertEquals(logLeadershipTermId, logBuffer.getLong(encodedMsgOffset(offset + relativeOffset), LITTLE_ENDIAN));
         relativeOffset += SIZE_OF_LONG;
@@ -87,7 +81,11 @@ class ClusterEventLoggerTest
         relativeOffset += SIZE_OF_LONG;
         assertEquals(leadershipTermId, logBuffer.getLong(encodedMsgOffset(offset + relativeOffset), LITTLE_ENDIAN));
         relativeOffset += SIZE_OF_LONG;
+        assertEquals(termBaseLogPosition, logBuffer.getLong(encodedMsgOffset(offset + relativeOffset), LITTLE_ENDIAN));
+        relativeOffset += SIZE_OF_LONG;
         assertEquals(logPosition, logBuffer.getLong(encodedMsgOffset(offset + relativeOffset), LITTLE_ENDIAN));
+        relativeOffset += SIZE_OF_LONG;
+        assertEquals(leaderRecordingId, logBuffer.getLong(encodedMsgOffset(offset + relativeOffset), LITTLE_ENDIAN));
         relativeOffset += SIZE_OF_LONG;
         assertEquals(timestamp, logBuffer.getLong(encodedMsgOffset(offset + relativeOffset), LITTLE_ENDIAN));
         relativeOffset += SIZE_OF_LONG;
@@ -111,7 +109,7 @@ class ClusterEventLoggerTest
 
         logger.logStateChange(STATE_CHANGE, from, to, memberId);
 
-        verifyLogHeader(logBuffer, offset, toEventCodeId(STATE_CHANGE), captureLength, captureLength);
+        verifyLogHeader(logBuffer, offset, STATE_CHANGE.toEventCodeId(), captureLength, captureLength);
         assertEquals(memberId, logBuffer.getInt(encodedMsgOffset(offset + LOG_HEADER_LENGTH), LITTLE_ENDIAN));
         assertEquals(payload, logBuffer.getStringAscii(encodedMsgOffset(offset + LOG_HEADER_LENGTH + SIZE_OF_INT)));
     }

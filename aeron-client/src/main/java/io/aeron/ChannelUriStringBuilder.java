@@ -1,5 +1,5 @@
 /*
- *  Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ import static org.agrona.SystemUtil.*;
  * @see Aeron#addSubscription(String, int)
  * @see ChannelUri
  */
-public class ChannelUriStringBuilder
+public final class ChannelUriStringBuilder
 {
     /**
      * Can be used when the likes of session-id wants to reference another entity such as a tagged publication.
@@ -68,6 +68,9 @@ public class ChannelUriStringBuilder
     private Boolean rejoin;
     private Boolean ssc;
     private boolean isSessionIdTagged;
+    private Integer socketSndbufLength;
+    private Integer socketRcvbufLength;
+    private Integer receiverWindowLength;
 
     /**
      * Clear out all the values thus setting back to the initial state.
@@ -102,6 +105,9 @@ public class ChannelUriStringBuilder
         group = null;
         rejoin = null;
         isSessionIdTagged = false;
+        socketRcvbufLength = null;
+        socketSndbufLength = null;
+        receiverWindowLength = null;
 
         return this;
     }
@@ -1442,6 +1448,123 @@ public class ChannelUriStringBuilder
     }
 
     /**
+     * Set the underlying OS send buffer length.
+     *
+     * @param socketSndbufLength parameter to be passed as SO_SNDBUF value.
+     * @return this for a fluent API.
+     * @see CommonContext#SOCKET_SNDBUF_PARAM_NAME
+     */
+    public ChannelUriStringBuilder socketSndbufLength(final Integer socketSndbufLength)
+    {
+        this.socketSndbufLength = socketSndbufLength;
+        return this;
+    }
+
+    /**
+     * Set the underlying OS send buffer length from an existing {@link ChannelUri} which may be (null).
+     *
+     * @param channelUri to read the value from.
+     * @return this for a fluent API.
+     * @see CommonContext#SOCKET_SNDBUF_PARAM_NAME
+     */
+    public ChannelUriStringBuilder socketSndbufLength(final ChannelUri channelUri)
+    {
+        final String socketSndbufLengthString = channelUri.get(SOCKET_SNDBUF_PARAM_NAME);
+        this.socketSndbufLength = null == socketSndbufLengthString ? null : Integer.valueOf(socketSndbufLengthString);
+        return this;
+    }
+
+    /**
+     * Get the underling OS send buffer length setting
+     *
+     * @return underlying OS send buffer length setting or null if not specified.
+     * @see CommonContext#SOCKET_SNDBUF_PARAM_NAME
+     */
+    public Integer socketSndbufLength()
+    {
+        return socketSndbufLength;
+    }
+
+
+    /**
+     * Set the underlying OS receive buffer length.
+     *
+     * @param socketRcvbufLength parameter to be passed as SO_SNDBUF value.
+     * @return this for a fluent API.
+     * @see CommonContext#SOCKET_RCVBUF_PARAM_NAME
+     */
+    public ChannelUriStringBuilder socketRcvbufLength(final Integer socketRcvbufLength)
+    {
+        this.socketRcvbufLength = socketRcvbufLength;
+        return this;
+    }
+
+    /**
+     * Set the underlying OS receive buffer length from an existing {@link ChannelUri}, which may have a null value for
+     * this field.
+     *
+     * @param channelUri to read the value from.
+     * @return this for a fluent API.
+     * @see CommonContext#SOCKET_RCVBUF_PARAM_NAME
+     */
+    public ChannelUriStringBuilder socketRcvbufLength(final ChannelUri channelUri)
+    {
+        final String socketRcvbufLengthString = channelUri.get(SOCKET_RCVBUF_PARAM_NAME);
+        this.socketRcvbufLength = null == socketRcvbufLengthString ? null : Integer.valueOf(socketRcvbufLengthString);
+        return this;
+    }
+
+    /**
+     * Get the underling OS receive buffer length setting
+     *
+     * @return underlying OS receive buffer length setting or null if not specified.
+     * @see CommonContext#SOCKET_RCVBUF_PARAM_NAME
+     */
+    public Integer socketRcvbufLength()
+    {
+        return socketRcvbufLength;
+    }
+
+    /**
+     * Set the congestion control initial receiver window length for this channel.
+     *
+     * @param receiverWindowLength initial receiver window length
+     * @return this for a fluent API
+     * @see CommonContext#RECEIVER_WINDOW_LENGTH_PARAM_NAME
+     */
+    public ChannelUriStringBuilder receiverWindowLength(final Integer receiverWindowLength)
+    {
+        this.receiverWindowLength = receiverWindowLength;
+        return this;
+    }
+
+    /**
+     * Set the congestion control initial receiver window length for this channel from an existing {@link ChannelUri},
+     * which may have a null value for this field.
+     *
+     * @param channelUri to read the value from
+     * @return this for a fluent API
+     * @see CommonContext#RECEIVER_WINDOW_LENGTH_PARAM_NAME
+     */
+    public ChannelUriStringBuilder receiverWindowLength(final ChannelUri channelUri)
+    {
+        final String receiverWindowLengthString = channelUri.get(RECEIVER_WINDOW_LENGTH_PARAM_NAME);
+        this.receiverWindowLength = null == receiverWindowLengthString ?
+            null : Integer.valueOf(receiverWindowLengthString);
+        return this;
+    }
+
+    /**
+     * Get the receiver window length to be used as the initial receiver window for congestion control.
+     * @return receiver window length
+     * @see CommonContext#SOCKET_RCVBUF_PARAM_NAME
+     */
+    public Integer receiverWindowLength()
+    {
+        return receiverWindowLength;
+    }
+
+    /**
      * Build a channel URI String for the given parameters.
      *
      * @return a channel URI String for the given parameters.
@@ -1578,6 +1701,21 @@ public class ChannelUriStringBuilder
             sb.append(SPIES_SIMULATE_CONNECTION_PARAM_NAME).append('=').append(ssc).append('|');
         }
 
+        if (null != socketSndbufLength)
+        {
+            sb.append(SOCKET_SNDBUF_PARAM_NAME).append('=').append(socketSndbufLength).append('|');
+        }
+
+        if (null != socketRcvbufLength)
+        {
+            sb.append(SOCKET_RCVBUF_PARAM_NAME).append('=').append(socketRcvbufLength).append('|');
+        }
+
+        if (null != receiverWindowLength)
+        {
+            sb.append(RECEIVER_WINDOW_LENGTH_PARAM_NAME).append('=').append(receiverWindowLength).append('|');
+        }
+
         final char lastChar = sb.charAt(sb.length() - 1);
         if (lastChar == '|' || lastChar == '?')
         {
@@ -1587,6 +1725,9 @@ public class ChannelUriStringBuilder
         return sb.toString();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return build();

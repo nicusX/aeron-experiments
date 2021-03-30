@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -185,6 +185,16 @@ public final class ClusterMarkFile implements AutoCloseable
     }
 
     /**
+     * Check if the {@link MarkFile} is closed.
+     *
+     * @return true if the {@link MarkFile} is closed.
+     */
+    public boolean isClosed()
+    {
+        return markFile.isClosed();
+    }
+
+    /**
      * Get the current value of a candidate term id if a vote is placed in an election.
      *
      * @return the current candidate term id within an election after voting or {@link Aeron#NULL_VALUE} if
@@ -196,7 +206,7 @@ public final class ClusterMarkFile implements AutoCloseable
     }
 
     /**
-     * Record the fact that a node has voted in a current election for a candidate so it can survive a restart.
+     * Record the fact that a node is aware of an election so it can survive a restart.
      *
      * @param candidateTermId to record that a vote has taken place.
      * @param fileSyncLevel   as defined by cluster file sync level.
@@ -207,6 +217,20 @@ public final class ClusterMarkFile implements AutoCloseable
         if (fileSyncLevel > 0)
         {
             markFile.mappedByteBuffer().force();
+        }
+    }
+
+    /**
+     * Record the fact that a node is aware of an election so it can survive a restart.
+     *
+     * @param candidateTermId to record that a vote has taken place.
+     * @param fileSyncLevel   as defined by cluster file sync level.
+     */
+    public void proposeMaxCandidateTermId(final long candidateTermId, final int fileSyncLevel)
+    {
+        if (candidateTermId > buffer.getLongVolatile(MarkFileHeaderEncoder.candidateTermIdEncodingOffset()))
+        {
+            candidateTermId(candidateTermId, fileSyncLevel);
         }
     }
 
@@ -273,7 +297,10 @@ public final class ClusterMarkFile implements AutoCloseable
      */
     public void updateActivityTimestamp(final long nowMs)
     {
-        markFile.timestampOrdered(nowMs);
+        if (!markFile.isClosed())
+        {
+            markFile.timestampOrdered(nowMs);
+        }
     }
 
     /**

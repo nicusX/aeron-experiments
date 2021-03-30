@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -109,7 +109,7 @@ public class ClusterBackupMediaDriver implements AutoCloseable
         }
         catch (final Throwable throwable)
         {
-            CloseHelper.quietCloseAll(driver, archive, clusterBackup);
+            CloseHelper.quietCloseAll(clusterBackup, archive, driver);
             throw throwable;
         }
     }

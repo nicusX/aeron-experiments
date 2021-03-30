@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import org.agrona.SemanticVersion;
 /**
  * Encapsulate the polling and decoding of archive control protocol response messages.
  */
-public class ControlResponsePoller implements ControlledFragmentHandler
+public final class ControlResponsePoller
 {
     /**
      * Limit to apply when polling response messages.
@@ -39,7 +39,7 @@ public class ControlResponsePoller implements ControlledFragmentHandler
     private final ChallengeDecoder challengeDecoder = new ChallengeDecoder();
 
     private final Subscription subscription;
-    private final ControlledFragmentAssembler fragmentAssembler = new ControlledFragmentAssembler(this);
+    private final ControlledFragmentAssembler fragmentAssembler = new ControlledFragmentAssembler(this::onFragment);
     private long controlSessionId = Aeron.NULL_VALUE;
     private long correlationId = Aeron.NULL_VALUE;
     private long relevantId = Aeron.NULL_VALUE;
@@ -191,12 +191,12 @@ public class ControlResponsePoller implements ControlledFragmentHandler
         return encodedChallenge;
     }
 
-    public ControlledFragmentAssembler.Action onFragment(
+    ControlledFragmentAssembler.Action onFragment(
         final DirectBuffer buffer, final int offset, final int length, final Header header)
     {
         if (isPollComplete)
         {
-            return Action.ABORT;
+            return ControlledFragmentHandler.Action.ABORT;
         }
 
         messageHeaderDecoder.wrap(buffer, offset);
@@ -223,7 +223,7 @@ public class ControlResponsePoller implements ControlledFragmentHandler
             errorMessage = controlResponseDecoder.errorMessage();
             isPollComplete = true;
 
-            return Action.BREAK;
+            return ControlledFragmentHandler.Action.BREAK;
         }
 
         if (messageHeaderDecoder.templateId() == ChallengeDecoder.TEMPLATE_ID)
@@ -247,12 +247,15 @@ public class ControlResponsePoller implements ControlledFragmentHandler
 
             isPollComplete = true;
 
-            return Action.BREAK;
+            return ControlledFragmentHandler.Action.BREAK;
         }
 
-        return Action.CONTINUE;
+        return ControlledFragmentHandler.Action.CONTINUE;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "ControlResponsePoller{" +

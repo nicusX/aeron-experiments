@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +47,7 @@ class ControlRequestDecoders
     final BoundedReplayRequestDecoder boundedReplayRequest = new BoundedReplayRequestDecoder();
     final StopAllReplaysRequestDecoder stopAllReplaysRequest = new StopAllReplaysRequestDecoder();
     final ReplicateRequestDecoder replicateRequest = new ReplicateRequestDecoder();
+    final ReplicateRequest2Decoder replicateRequest2 = new ReplicateRequest2Decoder();
     final StopReplicationRequestDecoder stopReplicationRequest = new StopReplicationRequestDecoder();
     final StartPositionRequestDecoder startPositionRequest = new StartPositionRequestDecoder();
     final DetachSegmentsRequestDecoder detachSegmentsRequest = new DetachSegmentsRequestDecoder();

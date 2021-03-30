@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,13 @@
  */
 
 #if defined(__linux__) || defined(Darwin)
-
 #include <unistd.h>
 #include <ftw.h>
 #include <cstdio>
 #include <spawn.h>
 #include <pthread.h>
 #elif defined(_WIN32)
-#include <process.h>
-#include <Windows.h>
+#include <windows.h>
 typedef intptr_t pid_t;
 #else
 #error "must spawn Java archive per test"
@@ -43,14 +41,20 @@ typedef intptr_t pid_t;
 #include "client/RecordingEventsAdapter.h"
 #include "client/RecordingPos.h"
 #include "client/ReplayMerge.h"
-#include "ArchiveTestUtil.h"
 
 using namespace aeron;
 using namespace aeron::util;
 using namespace aeron::archive::client;
 
 #ifdef _WIN32
-int aeron_delete_directory(const char *dir)
+
+static bool aeron_file_exists(const char *path)
+{
+    DWORD dwAttrib = GetFileAttributes(path);
+    return dwAttrib != INVALID_FILE_ATTRIBUTES;
+}
+
+static int aeron_delete_directory(const char *dir)
 {
     char dir_buffer[1024] = { 0 };
 
@@ -66,14 +70,14 @@ int aeron_delete_directory(const char *dir)
 
     SHFILEOPSTRUCT file_op =
         {
-            NULL,
+            nullptr,
             FO_DELETE,
             dir_buffer,
-            NULL,
+            nullptr,
             FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT,
             false,
-            NULL,
-            NULL
+            nullptr,
+            nullptr
         };
 
     return SHFileOperation(&file_op);
@@ -81,7 +85,13 @@ int aeron_delete_directory(const char *dir)
 
 #else
 
-static int unlink_func(const char *path, const struct stat *sb, int type_flag, struct FTW *ftw)
+static bool aeron_file_exists(const char *path)
+{
+    struct stat stat_info = {};
+    return stat(path, &stat_info) == 0;
+}
+
+static int aeron_unlink_func(const char *path, const struct stat *sb, int type_flag, struct FTW *ftw)
 {
     if (remove(path) != 0)
     {
@@ -91,9 +101,9 @@ static int unlink_func(const char *path, const struct stat *sb, int type_flag, s
     return 0;
 }
 
-int aeron_delete_directory(const char *dirname)
+static int aeron_delete_directory(const char *dirname)
 {
-    return nftw(dirname, unlink_func, 64, FTW_DEPTH | FTW_PHYS);
+    return nftw(dirname, aeron_unlink_func, 64, FTW_DEPTH | FTW_PHYS);
 }
 
 #endif
@@ -114,7 +124,7 @@ public:
         m_stream << currentTimeMillis() << " [SetUp] Starting ArchivingMediaDriver..." << std::endl;
 
         std::string archiveDirArg = "-Daeron.archive.dir=" + m_archiveDir;
-        char const * const argv[] =
+        const char * const argv[] =
         {
             "java",
 #if JAVA_MAJOR_VERSION >= 9
@@ -146,16 +156,16 @@ public:
             nullptr
         };
 
-        #if defined(_WIN32)
+#if defined(_WIN32)
         m_pid = _spawnv(P_NOWAIT, m_java.c_str(), &argv[0]);
-        #else
+#else
         m_pid = -1;
         if (0 != posix_spawn(&m_pid, m_java.c_str(), nullptr, nullptr, (char * const *)&argv[0], nullptr))
         {
             perror("spawn");
             ::exit(EXIT_FAILURE);
         }
-        #endif
+#endif
 
         if (m_pid < 0)
         {
@@ -195,21 +205,23 @@ public:
                 m_stream << currentTimeMillis() << " [TearDown] Waiting for driver termination" << std::endl;
 
                 const std::chrono::duration<long, std::milli> IDLE_SLEEP_MS_1(1);
-                while (test::fileExists(cncFilename.c_str()))
+                while (aeron_file_exists(cncFilename.c_str()))
                 {
                     std::this_thread::sleep_for(IDLE_SLEEP_MS_1);
                 }
 
-                #if defined(_WIN32)
-                    WaitForSingleObject(reinterpret_cast<HANDLE>(m_pid), INFINITE);
-                #else
-                    int process_status = -1;
-                    do
-                    {
-                        waitpid(m_pid, &process_status, WUNTRACED);
-                    }
-                    while (0 >= WIFEXITED(process_status));
-                #endif
+                m_stream << currentTimeMillis() << " [TearDown] CnC file no longer exists" << std::endl;
+
+#if defined(_WIN32)
+                WaitForSingleObject(reinterpret_cast<HANDLE>(m_pid), INFINITE);
+#else
+                int process_status = -1;
+                do
+                {
+                    waitpid(m_pid, &process_status, WUNTRACED);
+                }
+                while (0 >= WIFEXITED(process_status));
+#endif
                 m_stream << currentTimeMillis() << " [TearDown] Driver terminated" << std::endl;
             }
             else
@@ -219,7 +231,7 @@ public:
                 m_stream << now_ms << " [TearDown] Deleting " << m_archiveDir << std::endl;
                 if (aeron_delete_directory(m_archiveDir.c_str()) != 0)
                 {
-                    m_stream << now_ms << " [TearDown] Failed to delete " << m_archiveDir << std::endl;
+                    m_stream << currentTimeMillis() << " [TearDown] Failed to delete " << m_archiveDir << std::endl;
                 }
             }
         }
@@ -312,32 +324,15 @@ public:
     }
 
     bool attemptReplayMerge(
-        std::shared_ptr<AeronArchive> aeronArchive,
-        std::shared_ptr<Publication> publication,
+        ReplayMerge &replayMerge,
+        Publication &publication,
         fragment_handler_t &handler,
         const std::string &messagePrefix,
-        ChannelUriStringBuilder &subscriptionChannel,
-        ChannelUriStringBuilder &replayChannel,
-        ChannelUriStringBuilder &replayDestination,
-        ChannelUriStringBuilder &liveDestination,
-        std::int64_t recordingId,
         std::size_t totalMessageCount,
         std::size_t &messagesPublished,
-        std::size_t &receivedMessageCount,
-        std::int64_t receivedPosition) const
+        std::size_t &receivedMessageCount) const
     {
         aeron::concurrent::YieldingIdleStrategy idleStrategy;
-        std::shared_ptr<Subscription> subscription = addSubscription(
-            *aeronArchive->context().aeron(), subscriptionChannel.build(), m_recordingStreamId);
-
-        ReplayMerge replayMerge(
-            subscription,
-            aeronArchive,
-            replayChannel.build(),
-            replayDestination.build(),
-            liveDestination.build(),
-            recordingId,
-            receivedPosition);
 
         for (std::size_t i = messagesPublished; i < totalMessageCount; i++)
         {
@@ -345,7 +340,7 @@ public:
             const std::string message = messagePrefix + std::to_string(i);
 
             idleStrategy.reset();
-            while (publication->tryClaim(static_cast<util::index_t>(message.length()), bufferClaim) < 0)
+            while (publication.tryClaim(static_cast<util::index_t>(message.length()), bufferClaim) < 0)
             {
                 idleStrategy.idle();
                 int fragments = replayMerge.poll(handler, m_fragmentLimit);
@@ -429,13 +424,14 @@ TEST_F(AeronArchiveTest, shouldAsyncConnectToArchive)
         aeronArchive = asyncConnect->poll();
     }
 
-    aeronArchive->checkForErrorResponse();
+    EXPECT_TRUE(aeronArchive->controlResponsePoller().subscription()->isConnected());
 }
 
 TEST_F(AeronArchiveTest, shouldConnectToArchive)
 {
     std::shared_ptr<AeronArchive> aeronArchive = AeronArchive::connect(m_context);
-    aeronArchive->checkForErrorResponse();
+
+    EXPECT_TRUE(aeronArchive->controlResponsePoller().subscription()->isConnected());
 }
 
 TEST_F(AeronArchiveTest, shouldRecordPublicationAndFindRecording)
@@ -488,7 +484,8 @@ TEST_F(AeronArchiveTest, shouldRecordPublicationAndFindRecording)
 
     const std::int32_t count = aeronArchive->listRecording(
         recordingId,
-        [&](std::int64_t controlSessionId,
+        [&](
+            std::int64_t controlSessionId,
             std::int64_t correlationId,
             std::int64_t recordingId1,
             std::int64_t startTimestamp,
@@ -631,7 +628,8 @@ TEST_F(AeronArchiveTest, shouldRecordThenReplayThenTruncate)
 
     const std::int32_t count = aeronArchive->listRecording(
         recordingId,
-        [&](std::int64_t controlSessionId,
+        [](
+            std::int64_t controlSessionId,
             std::int64_t correlationId,
             std::int64_t recordingId1,
             std::int64_t startTimestamp,
@@ -754,19 +752,16 @@ struct SubscriptionDescriptor
     const std::int64_t m_correlationId;
     const std::int64_t m_subscriptionId;
     const std::int32_t m_streamId;
-    const std::string m_strippedChannel;
 
     SubscriptionDescriptor(
         std::int64_t controlSessionId,
         std::int64_t correlationId,
         std::int64_t subscriptionId,
-        std::int32_t streamId,
-        const std::string &strippedChannel) :
+        std::int32_t streamId) :
         m_controlSessionId(controlSessionId),
         m_correlationId(correlationId),
         m_subscriptionId(subscriptionId),
-        m_streamId(streamId),
-        m_strippedChannel(strippedChannel)
+        m_streamId(streamId)
     {
     }
 };
@@ -775,13 +770,14 @@ TEST_F(AeronArchiveTest, shouldListRegisteredRecordingSubscriptions)
 {
     std::vector<SubscriptionDescriptor> descriptors;
     recording_subscription_descriptor_consumer_t consumer =
-        [&](std::int64_t controlSessionId,
+        [&descriptors](
+            std::int64_t controlSessionId,
             std::int64_t correlationId,
             std::int64_t subscriptionId,
             std::int32_t streamId,
             const std::string &strippedChannel)
         {
-            descriptors.emplace_back(controlSessionId, correlationId, subscriptionId, streamId, strippedChannel);
+            descriptors.emplace_back(controlSessionId, correlationId, subscriptionId, streamId);
         };
 
     const std::int32_t expectedStreamId = 7;
@@ -824,12 +820,12 @@ TEST_F(AeronArchiveTest, shouldListRegisteredRecordingSubscriptions)
     EXPECT_EQ(1L, std::count_if(
         descriptors.begin(),
         descriptors.end(),
-        [=](SubscriptionDescriptor s){ return s.m_subscriptionId == subIdOne;}));
+        [=](const SubscriptionDescriptor &descriptor){ return descriptor.m_subscriptionId == subIdOne;}));
 
     EXPECT_EQ(1L, std::count_if(
         descriptors.begin(),
         descriptors.end(),
-        [=](SubscriptionDescriptor s){ return s.m_subscriptionId == subIdThree;}));
+        [=](const SubscriptionDescriptor &descriptor){ return descriptor.m_subscriptionId == subIdThree;}));
 }
 
 TEST_F(AeronArchiveTest, shouldMergeFromReplayToLive)
@@ -842,40 +838,31 @@ TEST_F(AeronArchiveTest, shouldMergeFromReplayToLive)
     const std::string liveEndpoint = "localhost:23267";
     const std::string replayEndpoint = "localhost:0";
 
-    ChannelUriStringBuilder publicationChannel, recordingChannel, subscriptionChannel;
-    ChannelUriStringBuilder liveDestination, replayDestination, replayChannel;
-
-    publicationChannel
+    const std::string publicationChannel = ChannelUriStringBuilder()
         .media(UDP_MEDIA)
         .tags("1,2")
         .controlEndpoint(controlEndpoint)
         .controlMode(MDC_CONTROL_MODE_DYNAMIC)
         .flowControl("tagged,g:99901/1,t:5s")
-        .termLength(termLength);
+        .termLength(termLength)
+        .build();
 
-    recordingChannel
-        .media(UDP_MEDIA)
-        .groupTag(99901)
-        .endpoint(recordingEndpoint)
-        .controlEndpoint(controlEndpoint);
-
-    subscriptionChannel
-        .media(UDP_MEDIA)
-        .controlMode(MDC_CONTROL_MODE_MANUAL);
-
-    liveDestination
+    const std::string liveDestination = ChannelUriStringBuilder()
         .media(UDP_MEDIA)
         .endpoint(liveEndpoint)
-        .controlEndpoint(controlEndpoint);
+        .controlEndpoint(controlEndpoint)
+        .build();
 
-    replayDestination
+    const std::string replayDestination = ChannelUriStringBuilder()
         .media(UDP_MEDIA)
-        .endpoint(replayEndpoint);
+        .endpoint(replayEndpoint)
+        .build();
 
-    replayChannel
+    const std::string replayChannel = ChannelUriStringBuilder()
         .media(UDP_MEDIA)
         .isSessionIdTagged(true)
-        .sessionId(2);
+        .sessionId(2)
+        .build();
 
     const std::size_t initialMessageCount = minMessagesPerTerm * 3;
     const std::size_t subsequentMessageCount = minMessagesPerTerm * 3;
@@ -884,14 +871,26 @@ TEST_F(AeronArchiveTest, shouldMergeFromReplayToLive)
 
     std::shared_ptr<AeronArchive> aeronArchive = AeronArchive::connect(m_context);
     std::shared_ptr<Publication> publication = addPublication(
-        *aeronArchive->context().aeron(), publicationChannel.build(), m_recordingStreamId);
+        *aeronArchive->context().aeron(), publicationChannel, m_recordingStreamId);
 
     const std::int32_t sessionId = publication->sessionId();
-    recordingChannel.sessionId(sessionId);
-    subscriptionChannel.sessionId(sessionId);
+
+    const std::string recordingChannel = ChannelUriStringBuilder()
+        .media(UDP_MEDIA)
+        .groupTag(99901)
+        .sessionId(sessionId)
+        .endpoint(recordingEndpoint)
+        .controlEndpoint(controlEndpoint)
+        .build();
+
+    const std::string subscriptionChannel = ChannelUriStringBuilder()
+        .media(UDP_MEDIA)
+        .controlMode(MDC_CONTROL_MODE_MANUAL)
+        .sessionId(sessionId)
+        .build();
 
     aeronArchive->startRecording(
-        recordingChannel.build(), m_recordingStreamId, AeronArchive::SourceLocation::REMOTE, true);
+        recordingChannel, m_recordingStreamId, AeronArchive::SourceLocation::REMOTE, true);
 
     CountersReader &countersReader = aeronArchive->context().aeron()->countersReader();
     const std::int32_t counterId = getRecordingCounterId(sessionId, countersReader);
@@ -907,7 +906,7 @@ TEST_F(AeronArchiveTest, shouldMergeFromReplayToLive)
     std::size_t receivedMessageCount = 0;
     std::int64_t receivedPosition = 0;
 
-    fragment_handler_t handler =
+    fragment_handler_t fragment_handler =
         [&](AtomicBuffer &buffer, util::index_t offset, util::index_t length, Header &header)
         {
             const std::string expected = messagePrefix + std::to_string(receivedMessageCount);
@@ -919,21 +918,32 @@ TEST_F(AeronArchiveTest, shouldMergeFromReplayToLive)
             receivedPosition = header.position();
         };
 
-    while (!attemptReplayMerge(
-        aeronArchive,
-        publication,
-        handler,
-        messagePrefix,
-        subscriptionChannel,
-        replayChannel,
-        replayDestination,
-        liveDestination,
-        recordingId,
-        totalMessageCount,
-        messagesPublished,
-        receivedMessageCount,
-        receivedPosition))
+    while (true)
     {
+        std::shared_ptr<Subscription> subscription = addSubscription(
+            *aeronArchive->context().aeron(), subscriptionChannel, m_recordingStreamId);
+
+        ReplayMerge replayMerge(
+            subscription,
+            aeronArchive,
+            replayChannel,
+            replayDestination,
+            liveDestination,
+            recordingId,
+            receivedPosition);
+
+        if (attemptReplayMerge(
+            replayMerge,
+            *publication,
+            fragment_handler,
+            messagePrefix,
+            totalMessageCount,
+            messagesPublished,
+            receivedMessageCount))
+        {
+            break;
+        }
+
         idleStrategy.idle();
     }
 
@@ -1085,7 +1095,8 @@ TEST_F(AeronArchiveTest, shouldPurgeStoppedRecording)
 
     const std::int32_t count = aeronArchive->listRecording(
         recordingId,
-        [&](std::int64_t controlSessionId,
+        [](
+            std::int64_t controlSessionId,
             std::int64_t correlationId,
             std::int64_t recordingId1,
             std::int64_t startTimestamp,
@@ -1156,7 +1167,8 @@ TEST_F(AeronArchiveTest, shouldReadJumboRecordingDescriptor)
 
     const std::int32_t count = aeronArchive->listRecording(
         recordingId,
-        [&](std::int64_t controlSessionId,
+        [&](
+            std::int64_t controlSessionId,
             std::int64_t correlationId,
             std::int64_t recordingId1,
             std::int64_t startTimestamp,

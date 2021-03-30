@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ package io.aeron.driver;
 /**
  * Delay generator that simply returns a constant value (such as 0)
  */
-public class StaticDelayGenerator implements FeedbackDelayGenerator
+public final class StaticDelayGenerator implements FeedbackDelayGenerator
 {
     private final long delayInNs;
     private final boolean immediateFeedback;
@@ -51,6 +51,9 @@ public class StaticDelayGenerator implements FeedbackDelayGenerator
         return immediateFeedback;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "StaticDelayGenerator{" +

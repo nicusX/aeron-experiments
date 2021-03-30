@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ import static org.agrona.BitUtil.SIZE_OF_LONG;
  * <b>Note:</b>The user should call {@link #isClosed()} and ensure the result is false to avoid a race on reading a
  * closed {@link io.aeron.Counter}.
  * */
-public class ReadableCounter implements AutoCloseable
+public final class ReadableCounter implements AutoCloseable
 {
     private final long addressOffset;
     private final long registrationId;

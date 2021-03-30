@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,6 +79,8 @@ extern "C"
 
 #define CONTROL_IP_ADDR "127.0.0.1"
 #define CONTROL_UDP_PORT (43657)
+
+#define TEST_CONDUCTOR_CYCLE_TIME_THRESHOLD (600 * 1000 * 1000)
 
 static int64_t nano_time = 0;
 static bool free_map_raw_log = true;
@@ -174,7 +176,7 @@ public:
 
 void mock_broadcast_handler(int32_t type_id, uint8_t *buffer, size_t length, void *clientd)
 {
-    DriverCallbacks *callback = static_cast<DriverCallbacks *>(clientd);
+    auto *callback = static_cast<DriverCallbacks *>(clientd);
     callback->broadcastToClient(type_id, buffer, length);
 }
 
@@ -191,7 +193,7 @@ void mock_counter_handler(
     size_t label_len,
     void *clientd)
 {
-    DriverCallbacks *callback = static_cast<DriverCallbacks *>(clientd);
+    auto *callback = static_cast<DriverCallbacks *>(clientd);
     callback->onCounter(id, type_id, key, key_len, label, label_len);
 }
 
@@ -228,6 +230,8 @@ struct TestDriverContext
         m_context->raw_log_map_func = test_malloc_raw_log_map;
         m_context->raw_log_close_func = test_malloc_raw_log_close;
         m_context->raw_log_free_func = test_malloc_raw_log_free;
+
+        aeron_driver_context_set_conductor_cycle_threshold_ns(m_context, TEST_CONDUCTOR_CYCLE_TIME_THRESHOLD);
     }
 
     virtual ~TestDriverContext()
@@ -242,7 +246,7 @@ struct TestDriverContext
 
 struct TestDriverConductor
 {
-    TestDriverConductor(TestDriverContext &context)
+    explicit TestDriverConductor(TestDriverContext &context)
     {
         if (aeron_driver_conductor_init(&m_conductor, context.m_context) < 0)
         {
@@ -354,7 +358,7 @@ public:
     int addPublication(
         int64_t client_id, int64_t correlation_id, const char *channel, int32_t stream_id, bool is_exclusive)
     {
-        aeron_publication_command_t *cmd = reinterpret_cast<aeron_publication_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_publication_command_t *>(m_command_buffer);
 
         int32_t msg_type_id = is_exclusive ? AERON_COMMAND_ADD_EXCLUSIVE_PUBLICATION : AERON_COMMAND_ADD_PUBLICATION;
 
@@ -369,7 +373,7 @@ public:
 
     int removePublication(int64_t client_id, int64_t correlation_id, int64_t registration_id)
     {
-        aeron_remove_command_t *cmd = reinterpret_cast<aeron_remove_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_remove_command_t *>(m_command_buffer);
 
         cmd->correlated.client_id = client_id;
         cmd->correlated.correlation_id = correlation_id;
@@ -391,7 +395,7 @@ public:
 
     int addNetworkSubscription(int64_t client_id, int64_t correlation_id, const char *channel, int32_t stream_id)
     {
-        aeron_subscription_command_t *cmd = reinterpret_cast<aeron_subscription_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_subscription_command_t *>(m_command_buffer);
 
         cmd->correlated.client_id = client_id;
         cmd->correlated.correlation_id = correlation_id;
@@ -412,7 +416,7 @@ public:
 
     int removeSubscription(int64_t client_id, int64_t correlation_id, int64_t registration_id)
     {
-        aeron_remove_command_t *cmd = reinterpret_cast<aeron_remove_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_remove_command_t *>(m_command_buffer);
 
         cmd->correlated.client_id = client_id;
         cmd->correlated.correlation_id = correlation_id;
@@ -423,7 +427,7 @@ public:
 
     int clientKeepalive(int64_t client_id)
     {
-        aeron_correlated_command_t *cmd = reinterpret_cast<aeron_correlated_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_correlated_command_t *>(m_command_buffer);
 
         cmd->client_id = client_id;
 
@@ -438,8 +442,8 @@ public:
         size_t key_length,
         std::string &label)
     {
-        aeron_counter_command_t *cmd = reinterpret_cast<aeron_counter_command_t *>(m_command_buffer);
-        uint8_t *cmd_ptr = reinterpret_cast<uint8_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_counter_command_t *>(m_command_buffer);
+        auto *cmd_ptr = reinterpret_cast<uint8_t *>(m_command_buffer);
 
         cmd->correlated.client_id = client_id;
         cmd->correlated.correlation_id = correlation_id;
@@ -463,7 +467,7 @@ public:
 
     int removeCounter(int64_t client_id, int64_t correlation_id, int64_t registration_id)
     {
-        aeron_remove_command_t *cmd = reinterpret_cast<aeron_remove_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_remove_command_t *>(m_command_buffer);
 
         cmd->correlated.client_id = client_id;
         cmd->correlated.correlation_id = correlation_id;
@@ -475,7 +479,7 @@ public:
     int addDestination(
         int64_t client_id, int64_t correlation_id, int64_t publication_registration_id, const char *channel)
     {
-        aeron_destination_command_t *cmd = reinterpret_cast<aeron_destination_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_destination_command_t *>(m_command_buffer);
 
         cmd->correlated.client_id = client_id;
         cmd->correlated.correlation_id = correlation_id;
@@ -488,7 +492,7 @@ public:
 
     int addReceiveDestination(int64_t client_id, int64_t correlation_id, int64_t subscription_id, const char *channel)
     {
-        aeron_destination_command_t *cmd = reinterpret_cast<aeron_destination_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_destination_command_t *>(m_command_buffer);
 
         cmd->correlated.client_id = client_id;
         cmd->correlated.correlation_id = correlation_id;
@@ -501,7 +505,7 @@ public:
 
     int removeReceiveDestination(int64_t client_id, int64_t correlation_id, int64_t subscription_id, const char *channel)
     {
-        aeron_destination_command_t *cmd = reinterpret_cast<aeron_destination_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_destination_command_t *>(m_command_buffer);
 
         cmd->correlated.client_id = client_id;
         cmd->correlated.correlation_id = correlation_id;
@@ -515,7 +519,7 @@ public:
     int removeDestination(
         int64_t client_id, int64_t correlation_id, int64_t publication_registration_id, const char *channel)
     {
-        aeron_destination_command_t *cmd = reinterpret_cast<aeron_destination_command_t *>(m_command_buffer);
+        auto *cmd = reinterpret_cast<aeron_destination_command_t *>(m_command_buffer);
 
         cmd->correlated.client_id = client_id;
         cmd->correlated.correlation_id = correlation_id;
@@ -529,6 +533,17 @@ public:
     int doWork()
     {
         return aeron_driver_conductor_do_work(&m_conductor.m_conductor);
+    }
+
+    void doWorkUntilDone()
+    {
+        while (true)
+        {
+            if (0 == doWork())
+            {
+                break;
+            }
+        }
     }
 
     void doWorkForNs(int64_t duration_ns, int64_t num_increments = 100, std::function<void()> func = [](){})
@@ -565,7 +580,7 @@ public:
     void createPublicationImage(aeron_receive_channel_endpoint_t *endpoint, int32_t stream_id, int64_t position)
     {
         aeron_command_create_publication_image_t cmd;
-        size_t position_bits_to_shift = (size_t)aeron_number_of_trailing_zeroes(TERM_LENGTH);
+        auto position_bits_to_shift = (size_t)aeron_number_of_trailing_zeroes(TERM_LENGTH);
 
         cmd.base.func = aeron_driver_conductor_on_create_publication_image;
         cmd.base.item = nullptr;

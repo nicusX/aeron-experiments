@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -243,6 +243,9 @@ public class CounterMessageFlyweight extends CorrelatedMessageFlyweight
         return MINIMUM_LENGTH + align(keyLength, SIZE_OF_INT) + SIZE_OF_INT + labelLength;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "CounterMessageFlyweight{" +

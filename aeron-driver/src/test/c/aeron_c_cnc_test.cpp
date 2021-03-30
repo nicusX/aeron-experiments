@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,7 @@
 #include <functional>
 
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 
-#include "EmbeddedMediaDriver.h"
 #include "aeron_test_base.h"
 
 extern "C"
@@ -30,6 +28,7 @@ extern "C"
 }
 
 #define PUB_URI "aeron:udp?endpoint=127.0.0.1:24325"
+#define PUB_URI_2 "aeron:udp?endpoint=127.0.0.1:24326"
 #define STREAM_ID (117)
 
 using namespace aeron;
@@ -73,8 +72,9 @@ class CncTest : public CSystemTestBase, public testing::Test
 {
 protected:
     CncTest() : CSystemTestBase(
-        std::vector<std::pair<std::string, std::string>>{
-            { "AERON_UDP_CHANNEL_INCOMING_INTERCEPTORS", "loss" },
+        std::vector<std::pair<std::string, std::string>>
+        {
+            { "AERON_UDP_CHANNEL_INCOMING_INTERCEPTORS",        "loss" },
             { "AERON_UDP_CHANNEL_TRANSPORT_BINDINGS_LOSS_ARGS", "rate=0.2|recv-msg-mask=0xF" }
         })
     {
@@ -184,7 +184,7 @@ TEST_F(CncTest, shouldGetCountersAndDistinctErrorLogs)
     int errorCallbackCounter = 0;
 
     aeron_counters_reader_t *counters = aeron_cnc_counters_reader(m_cnc);
-    CounterIdFilter filter{AERON_SYSTEM_COUNTER_ERRORS};
+    CounterIdFilter filter{ AERON_SYSTEM_COUNTER_ERRORS };
 
     aeron_counters_reader_foreach_counter(counters, counterFilterCallback, &filter);
     ASSERT_TRUE(filter.matches());
@@ -200,7 +200,7 @@ TEST_F(CncTest, shouldGetCountersAndDistinctErrorLogs)
         &async, m_aeron, PUB_URI, STREAM_ID, nullptr, nullptr, nullptr, nullptr), 0) << aeron_errmsg();
     ASSERT_EQ(nullptr, awaitSubscriptionOrError(async));
 
-    filter = CounterIdFilter{AERON_SYSTEM_COUNTER_ERRORS};
+    filter = CounterIdFilter{ AERON_SYSTEM_COUNTER_ERRORS };
 
     int64_t deadline_ms = aeron_epoch_clock() + 1000;
     while (filter.value() < 1)
@@ -222,19 +222,28 @@ TEST_F(CncTest, shouldGetLossReport)
     aeron_async_add_subscription_t *async_sub;
     aeron_subscription_t *subscription;
     ASSERT_EQ(aeron_async_add_subscription(
-        &async_sub, m_aeron, PUB_URI, STREAM_ID, nullptr, nullptr, nullptr, nullptr), 0);
+        &async_sub, m_aeron, PUB_URI_2, STREAM_ID, nullptr, nullptr, nullptr, nullptr), 0);
     ASSERT_TRUE((subscription = awaitSubscriptionOrError(async_sub))) << aeron_errmsg();
 
     aeron_async_add_publication_t *async_pub;
     aeron_publication_t *publication;
-    ASSERT_EQ(aeron_async_add_publication(&async_pub, m_aeron, PUB_URI, STREAM_ID), 0);
+    ASSERT_EQ(aeron_async_add_publication(&async_pub, m_aeron, PUB_URI_2, STREAM_ID), 0);
     ASSERT_TRUE((publication = awaitPublicationOrError(async_pub))) << aeron_errmsg();
 
     const char *message = "hello world";
 
-    for (int i = 0; i < 100; i++)
+    poll_handler_t handler =
+        [&](const uint8_t *buffer, size_t length, aeron_header_t *header)
+        {
+        };
+
+    aeron_counters_reader_t *counters = aeron_cnc_counters_reader(m_cnc);
+    int64_t *retransmitsSentCounter = aeron_counters_reader_addr(counters, AERON_SYSTEM_COUNTER_RETRANSMITS_SENT);
+
+    int64_t retransmits = 0;
+    for (int i = 0; i < 100 && 0 == retransmits; i++)
     {
-        int64_t offer = 0;
+        int64_t offer;
         do
         {
             offer = aeron_publication_offer(
@@ -247,19 +256,14 @@ TEST_F(CncTest, shouldGetLossReport)
             ASSERT_NE(AERON_PUBLICATION_ERROR, offer) << aeron_errmsg();
         }
         while (offer < 0);
-    }
 
-    poll_handler_t handler =
-        [&](const uint8_t *buffer, size_t length, aeron_header_t *header)
+        while (poll(subscription, handler, 1) < 1)
         {
-        };
+        }
 
-    int total = 0;
-    while (total < 100)
-    {
-        total += poll(subscription, handler, 100);
+        AERON_GET_VOLATILE(retransmits, *retransmitsSentCounter);
     }
 
-    ASSERT_LT(0, aeron_cnc_loss_reporter_read(m_cnc, countingLossReader, &lossCallbackCounter)) << aeron_errmsg();
+    ASSERT_TRUE(0 < aeron_cnc_loss_reporter_read(m_cnc, countingLossReader, &lossCallbackCounter)) << aeron_errmsg();
     ASSERT_NE(0, lossCallbackCounter);
 }

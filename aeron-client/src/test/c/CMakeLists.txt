@@ -1,5 +1,5 @@
 #
-# Copyright 2014-2020 Real Logic Limited.
+# Copyright 2014-2021 Real Logic Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -57,3 +57,5 @@ aeron_c_client_test(bitutil_test util/aeron_bitutil_test.cpp)
 aeron_c_client_test(fileutil_test util/aeron_fileutil_test.cpp)
 aeron_c_client_test(math_test util/aeron_math_test.cpp)
 aeron_c_client_test(strutil_test util/aeron_strutil_test.cpp)
+aeron_c_client_test(error_test util/aeron_error_test.cpp)
+aeron_c_client_test(netutil_test util/aeron_netutil_test.cpp)

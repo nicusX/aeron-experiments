@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ aeron_flow_control_strategy_supplier_func_t aeron_flow_control_strategy_supplier
 #endif
     if ((func = (aeron_flow_control_strategy_supplier_func_t)aeron_dlsym(RTLD_DEFAULT, strategy_name)) == NULL)
     {
-        aeron_set_err(EINVAL, "could not find flow control strategy %s: dlsym - %s", strategy_name, aeron_dlerror());
+        AERON_SET_ERR(EINVAL, "could not find flow control strategy %s: dlsym - %s", strategy_name, aeron_dlerror());
         return NULL;
     }
 #if defined(AERON_COMPILER_GCC)
@@ -112,6 +112,7 @@ int aeron_max_multicast_flow_control_strategy_supplier(
     _strategy->on_idle = aeron_max_flow_control_strategy_on_idle;
     _strategy->on_status_message = aeron_max_flow_control_strategy_on_sm;
     _strategy->fini = aeron_max_flow_control_strategy_fini;
+    _strategy->has_required_receivers = aeron_flow_control_strategy_has_required_receivers_default;
 
     *strategy = _strategy;
 
@@ -191,9 +192,11 @@ int aeron_default_multicast_flow_control_strategy_supplier(
 
             if (0 == strategy_name_length)
             {
-                aeron_set_err(
-                    EINVAL, "No flow control strategy name specified, URI: %.*s",
-                    (int)channel->uri_length, channel->original_uri);
+                AERON_SET_ERR(
+                    EINVAL,
+                    "No flow control strategy name specified, URI: %.*s",
+                    (int)channel->uri_length,
+                    channel->original_uri);
                 return -1;
             }
 
@@ -214,10 +217,13 @@ int aeron_default_multicast_flow_control_strategy_supplier(
             }
             else
             {
-                aeron_set_err(
-                    EINVAL, "Invalid flow control strategy name: %.*s from URI: %.*s",
-                    (int)strategy_name_length, strategy_name,
-                    (int)channel->uri_length, channel->original_uri);
+                AERON_SET_ERR(
+                    EINVAL,
+                    "Invalid flow control strategy name: %.*s from URI: %.*s",
+                    (int)strategy_name_length,
+                    strategy_name,
+                    (int)channel->uri_length,
+                    channel->original_uri);
 
                 return -1;
             }
@@ -301,12 +307,15 @@ int aeron_flow_control_parse_tagged_options(
 
             if (AERON_FLOW_CONTROL_NUMBER_BUFFER_LEN <= value_length)
             {
-                aeron_set_err(
+                AERON_SET_ERR(
                     EINVAL,
                     "Flow control options - number field too long (found %d, max %d), field: %.*s, options: %.*s",
-                    (int)value_length, (AERON_FLOW_CONTROL_NUMBER_BUFFER_LEN - 1),
-                    (int)value_length, value,
-                    (int)options_length, options);
+                    (int)value_length,
+                    (AERON_FLOW_CONTROL_NUMBER_BUFFER_LEN - 1),
+                    (int)value_length,
+                    value,
+                    (int)options_length,
+                    options);
 
                 return -1;
             }
@@ -328,11 +337,13 @@ int aeron_flow_control_parse_tagged_options(
                 }
                 else if (number_buffer != end_ptr && !has_group_min_size) // Allow empty values if we have a group count
                 {
-                    aeron_set_err(
+                    AERON_SET_ERR(
                         EINVAL,
                         "Flow control options - invalid group, field: %.*s, options: %.*s",
-                        (int)current_option_length, current_option,
-                        (int)options_length, options);
+                        (int)current_option_length,
+                        current_option,
+                        (int)options_length,
+                        options);
 
                     return -1;
                 }
@@ -355,11 +366,13 @@ int aeron_flow_control_parse_tagged_options(
                     }
                     else
                     {
-                        aeron_set_err(
+                        AERON_SET_ERR(
                             EINVAL,
                             "Group count invalid, field: %.*s, options: %.*s",
-                            (int)current_option_length, current_option,
-                            (int)options_length, options);
+                            (int)current_option_length,
+                            current_option,
+                            (int)options_length,
+                            options);
 
                         return -1;
                     }
@@ -375,11 +388,13 @@ int aeron_flow_control_parse_tagged_options(
                 }
                 else
                 {
-                    aeron_set_err(
+                    AERON_SET_ERR(
                         EINVAL,
                         "Flow control options - invalid timeout, field: %.*s, options: %.*s",
-                        (int)current_option_length, current_option,
-                        (int)options_length, options);
+                        (int)current_option_length,
+                        current_option,
+                        (int)options_length,
+                        options);
 
                     return -1;
                 }
@@ -387,11 +402,13 @@ int aeron_flow_control_parse_tagged_options(
         }
         else
         {
-            aeron_set_err(
+            AERON_SET_ERR(
                 EINVAL,
                 "Flow control options - unrecognised option, field: %.*s, options: %.*s",
-                (int)current_option_length, current_option,
-                (int)options_length, options);
+                (int)current_option_length,
+                current_option,
+                (int)options_length,
+                options);
 
             return -1;
         }

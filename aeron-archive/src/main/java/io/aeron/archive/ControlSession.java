@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -91,11 +91,17 @@ final class ControlSession implements Session
         this.activityDeadlineMs = cachedEpochClock.time() + connectTimeoutMs;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long sessionId()
     {
         return controlSessionId;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void abort()
     {
         state(State.DONE);
@@ -105,6 +111,9 @@ final class ControlSession implements Session
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
         if (null != activeListing)
@@ -120,11 +129,17 @@ final class ControlSession implements Session
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean isDone()
     {
         return state == State.DONE;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int doWork()
     {
         int workCount = 0;
@@ -309,7 +324,8 @@ final class ControlSession implements Session
         attemptToActivate();
         if (State.ACTIVE == state)
         {
-            conductor.startReplay(correlationId, recordingId, position, length, replayStreamId, replayChannel, this);
+            conductor.startReplay(
+                correlationId, recordingId, position, length, replayStreamId, replayChannel, null, this);
         }
     }
 
@@ -441,9 +457,13 @@ final class ControlSession implements Session
         final long correlationId,
         final long srcRecordingId,
         final long dstRecordingId,
+        final long stopPosition,
+        final long channelTagId,
+        final long subscriptionTagId,
         final int srcControlStreamId,
         final String srcControlChannel,
-        final String liveDestination)
+        final String liveDestination,
+        final String replicationChannel)
     {
         attemptToActivate();
         if (State.ACTIVE == state)
@@ -452,11 +472,13 @@ final class ControlSession implements Session
                 correlationId,
                 srcRecordingId,
                 dstRecordingId,
-                Aeron.NULL_VALUE,
-                Aeron.NULL_VALUE,
+                stopPosition,
+                channelTagId,
+                subscriptionTagId,
                 srcControlStreamId,
                 srcControlChannel,
                 liveDestination,
+                replicationChannel,
                 this);
         }
     }
@@ -524,32 +546,6 @@ final class ControlSession implements Session
         }
     }
 
-    void onReplicateTagged(
-        final long correlationId,
-        final long srcRecordingId,
-        final long dstRecordingId,
-        final long channelTagId,
-        final long subscriptionTagId,
-        final int srcControlStreamId,
-        final String srcControlChannel,
-        final String liveDestination)
-    {
-        attemptToActivate();
-        if (State.ACTIVE == state)
-        {
-            conductor.replicate(
-                correlationId,
-                srcRecordingId,
-                dstRecordingId,
-                channelTagId,
-                subscriptionTagId,
-                srcControlStreamId,
-                srcControlChannel,
-                liveDestination,
-                this);
-        }
-    }
-
     void sendOkResponse(final long correlationId, final ControlResponseProxy proxy)
     {
         sendResponse(correlationId, 0L, OK, null, proxy);
@@ -600,9 +596,9 @@ final class ControlSession implements Session
     }
 
     void attemptErrorResponse(
-        final long correlationId, final long relevantId, final String errorMessage, final ControlResponseProxy proxy)
+        final long correlationId, final int errorCode, final String errorMessage, final ControlResponseProxy proxy)
     {
-        proxy.sendResponse(controlSessionId, correlationId, relevantId, ERROR, errorMessage, this);
+        proxy.sendResponse(controlSessionId, correlationId, errorCode, ERROR, errorMessage, this);
     }
 
     int sendDescriptor(final long correlationId, final UnsafeBuffer descriptorBuffer, final ControlResponseProxy proxy)

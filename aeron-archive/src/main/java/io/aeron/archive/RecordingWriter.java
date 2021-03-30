@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import io.aeron.logbuffer.BlockHandler;
 import org.agrona.CloseHelper;
 import org.agrona.DirectBuffer;
 import org.agrona.LangUtil;
+import org.agrona.Strings;
 import org.agrona.concurrent.CountedErrorHandler;
 import org.agrona.concurrent.UnsafeBuffer;
 
@@ -59,6 +60,7 @@ final class RecordingWriter implements BlockHandler, AutoCloseable
     private final FileChannel archiveDirChannel;
     private final File archiveDir;
     private final CountedErrorHandler countedErrorHandler;
+    private final Archive.Context ctx;
 
     private long segmentBasePosition;
     private int segmentOffset;
@@ -71,13 +73,10 @@ final class RecordingWriter implements BlockHandler, AutoCloseable
         final long startPosition,
         final int segmentLength,
         final Image image,
-        final Archive.Context ctx,
-        final FileChannel archiveDirChannel,
-        final UnsafeBuffer checksumBuffer,
-        final Checksum checksum)
+        final Archive.Context ctx)
     {
         this.recordingId = recordingId;
-        this.archiveDirChannel = archiveDirChannel;
+        this.archiveDirChannel = ctx.archiveDirChannel();
         this.segmentLength = segmentLength;
 
         archiveDir = ctx.archiveDir();
@@ -85,9 +84,9 @@ final class RecordingWriter implements BlockHandler, AutoCloseable
         forceMetadata = ctx.fileSyncLevel() > 1;
 
         countedErrorHandler = ctx.countedErrorHandler();
-
-        this.checksumBuffer = checksumBuffer;
-        this.checksum = checksum;
+        checksumBuffer = ctx.recordChecksumBuffer();
+        checksum = ctx.recordChecksum();
+        this.ctx = ctx;
 
         final int termLength = image.termBufferLength();
         final long joinPosition = image.joinPosition();
@@ -95,6 +94,9 @@ final class RecordingWriter implements BlockHandler, AutoCloseable
         segmentOffset = (int)(joinPosition - segmentBasePosition);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onBlock(
         final DirectBuffer termBuffer, final int termOffset, final int length, final int sessionId, final int termId)
     {
@@ -140,6 +142,11 @@ final class RecordingWriter implements BlockHandler, AutoCloseable
             close();
             throw new ArchiveException("file closed by interrupt, recording aborted", ex, ArchiveException.GENERIC);
         }
+        catch (final IOException ex)
+        {
+            close();
+            checkErrorType(ex, length);
+        }
         catch (final Throwable ex)
         {
             close();
@@ -147,6 +154,9 @@ final class RecordingWriter implements BlockHandler, AutoCloseable
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
         if (!isClosed)
@@ -154,11 +164,6 @@ final class RecordingWriter implements BlockHandler, AutoCloseable
             isClosed = true;
             CloseHelper.close(countedErrorHandler, recordingFileChannel);
         }
-    }
-
-    boolean isClosed()
-    {
-        return isClosed;
     }
 
     long position()
@@ -225,5 +230,32 @@ final class RecordingWriter implements BlockHandler, AutoCloseable
         }
 
         openRecordingSegmentFile(file);
+    }
+
+    private void checkErrorType(final IOException ex, final int writeLength)
+    {
+        final String msg = ex.getMessage();
+        boolean isLowStorageSpace = false;
+        IOException suppressed = null;
+
+        try
+        {
+            isLowStorageSpace = (!Strings.isEmpty(msg) && msg.contains("No space left on device")) ||
+                ctx.archiveFileStore().getUsableSpace() < writeLength;
+        }
+        catch (final IOException ex2)
+        {
+            suppressed = ex2;
+        }
+
+        final int errorCode = isLowStorageSpace ? ArchiveException.STORAGE_SPACE : ArchiveException.GENERIC;
+        final ArchiveException error = new ArchiveException("java.io.IOException - " + msg, ex, errorCode);
+
+        if (null != suppressed)
+        {
+            error.addSuppressed(suppressed);
+        }
+
+        throw error;
     }
 }

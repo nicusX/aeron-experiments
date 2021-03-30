@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ import java.nio.ByteBuffer;
 /**
  * {@link UdpChannelTransport} specialised for for name resolution between {@link MediaDriver}s.
  */
-public class UdpNameResolutionTransport extends UdpChannelTransport
+public final class UdpNameResolutionTransport extends UdpChannelTransport
 {
     /**
      * Handler for processing the received frames.
@@ -52,6 +52,14 @@ public class UdpNameResolutionTransport extends UdpChannelTransport
     private final UnsafeBuffer unsafeBuffer;
     private final ByteBuffer byteBuffer;
 
+    /**
+     * Construct a new channel transport for name resolution.
+     *
+     * @param udpChannel      associated with the transport.
+     * @param resolverAddress to listen on.
+     * @param unsafeBuffer    for reading frames.
+     * @param context         for configuration.
+     */
     public UdpNameResolutionTransport(
         final UdpChannel udpChannel,
         final InetSocketAddress resolverAddress,

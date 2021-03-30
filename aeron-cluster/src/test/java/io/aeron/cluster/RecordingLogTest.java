@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package io.aeron.cluster;
 
+import io.aeron.Aeron;
 import io.aeron.archive.client.AeronArchive;
 import io.aeron.cluster.client.ClusterException;
 import org.agrona.IoUtil;
@@ -78,6 +79,7 @@ public class RecordingLogTest
             assertEquals(1, recordingLog.entries().size());
 
             final RecordingLog.Entry snapshot = recordingLog.getLatestSnapshot(SERVICE_ID);
+            assertNotNull(snapshot);
             assertEquals(entry.toString(), snapshot.toString());
         }
     }
@@ -99,7 +101,8 @@ public class RecordingLogTest
             assertEquals(3, recordingLog.entries().size());
 
             final AeronArchive mockArchive = mock(AeronArchive.class);
-            final RecordingLog.RecoveryPlan recoveryPlan = recordingLog.createRecoveryPlan(mockArchive, serviceCount);
+            final RecordingLog.RecoveryPlan recoveryPlan = recordingLog.createRecoveryPlan(mockArchive, serviceCount,
+                Aeron.NULL_VALUE);
             assertEquals(2, recoveryPlan.snapshots.size());
             assertEquals(SERVICE_ID, recoveryPlan.snapshots.get(0).serviceId);
             assertEquals(2L, recoveryPlan.snapshots.get(0).recordingId);
@@ -126,7 +129,8 @@ public class RecordingLogTest
         try (RecordingLog recordingLog = new RecordingLog(TEMP_DIR))
         {
             final AeronArchive mockArchive = mock(AeronArchive.class);
-            final RecordingLog.RecoveryPlan recoveryPlan = recordingLog.createRecoveryPlan(mockArchive, serviceCount);
+            final RecordingLog.RecoveryPlan recoveryPlan = recordingLog.createRecoveryPlan(mockArchive, serviceCount,
+                Aeron.NULL_VALUE);
             assertEquals(2, recoveryPlan.snapshots.size());
             assertEquals(SERVICE_ID, recoveryPlan.snapshots.get(0).serviceId);
             assertEquals(2L, recoveryPlan.snapshots.get(0).recordingId);
@@ -156,7 +160,8 @@ public class RecordingLogTest
         try (RecordingLog recordingLog = new RecordingLog(TEMP_DIR))
         {
             final AeronArchive mockArchive = mock(AeronArchive.class);
-            final RecordingLog.RecoveryPlan recoveryPlan = recordingLog.createRecoveryPlan(mockArchive, serviceCount);
+            final RecordingLog.RecoveryPlan recoveryPlan = recordingLog.createRecoveryPlan(mockArchive, serviceCount,
+                Aeron.NULL_VALUE);
             assertEquals(2, recoveryPlan.snapshots.size());
             assertEquals(SERVICE_ID, recoveryPlan.snapshots.get(0).serviceId);
             assertEquals(6L, recoveryPlan.snapshots.get(0).recordingId);
@@ -183,6 +188,7 @@ public class RecordingLogTest
 
             final RecordingLog.Entry lastTerm = recordingLog.findLastTerm();
 
+            assertNotNull(lastTerm);
             assertEquals(5L, lastTerm.recordingId);
 
             recordingLog.invalidateEntry(11, 6);
@@ -193,12 +199,14 @@ public class RecordingLogTest
             final AeronArchive mockArchive = mock(AeronArchive.class);
             when(mockArchive.listRecording(anyLong(), any())).thenReturn(1);
 
-            final RecordingLog.RecoveryPlan recoveryPlan = recordingLog.createRecoveryPlan(mockArchive, serviceCount);
+            final RecordingLog.RecoveryPlan recoveryPlan = recordingLog.createRecoveryPlan(mockArchive, serviceCount,
+                Aeron.NULL_VALUE);
             assertEquals(0L, recoveryPlan.log.recordingId);
             assertEquals(10L, recoveryPlan.log.leadershipTermId);
             assertEquals(666, recoveryPlan.log.termBaseLogPosition);
 
             final RecordingLog.Entry lastTerm = recordingLog.findLastTerm();
+            assertNotNull(lastTerm);
             assertEquals(0L, lastTerm.recordingId);
             assertEquals(0L, recordingLog.findLastTermRecordingId());
             assertTrue(recordingLog.isUnknown(removedLeadershipTerm));
@@ -330,8 +338,13 @@ public class RecordingLogTest
             assertFalse(recordingLog.entries().get(4).isValid);
             assertTrue(recordingLog.entries().get(5).isValid);
 
-            assertEquals(2L, recordingLog.getLatestSnapshot(0).recordingId);
-            assertEquals(3L, recordingLog.getLatestSnapshot(SERVICE_ID).recordingId);
+            final RecordingLog.Entry latestServiceSnapshot = recordingLog.getLatestSnapshot(0);
+            assertNotNull(latestServiceSnapshot);
+            assertEquals(2L, latestServiceSnapshot.recordingId);
+
+            final RecordingLog.Entry latestCmSnapshot = recordingLog.getLatestSnapshot(SERVICE_ID);
+            assertNotNull(latestCmSnapshot);
+            assertEquals(3L, latestCmSnapshot.recordingId);
 
             assertTrue(recordingLog.invalidateLatestSnapshot());
             assertEquals(6, recordingLog.entries().size());

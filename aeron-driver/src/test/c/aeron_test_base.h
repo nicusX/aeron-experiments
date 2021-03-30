@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -55,7 +55,7 @@ public:
         m_driver.stop();
     }
 
-    aeron_t *connect()
+    virtual aeron_t *connect()
     {
         if (aeron_context_init(&m_context) < 0)
         {

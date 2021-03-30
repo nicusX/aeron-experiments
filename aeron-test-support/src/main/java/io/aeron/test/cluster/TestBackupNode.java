@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -69,13 +69,7 @@ public class TestBackupNode implements AutoCloseable
 
     ClusterBackup.State backupState()
     {
-        final Counter counter = clusterBackupMediaDriver.clusterBackup().context().stateCounter();
-        if (counter.isClosed())
-        {
-            return null;
-        }
-
-        return ClusterBackup.State.get(counter.get());
+        return ClusterBackup.State.get(clusterBackupMediaDriver.clusterBackup().context().stateCounter());
     }
 
     long liveLogPosition()

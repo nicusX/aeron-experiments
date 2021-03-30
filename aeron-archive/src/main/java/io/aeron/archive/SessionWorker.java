@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -15,9 +15,9 @@
  */
 package io.aeron.archive;
 
-import org.agrona.ErrorHandler;
 import org.agrona.collections.ArrayListUtil;
 import org.agrona.concurrent.Agent;
+import org.agrona.concurrent.CountedErrorHandler;
 
 import java.util.ArrayList;
 
@@ -31,20 +31,26 @@ class SessionWorker<T extends Session> implements Agent
 {
     private final ArrayList<T> sessions = new ArrayList<>();
     private final String roleName;
-    protected final ErrorHandler errorHandler;
+    protected final CountedErrorHandler errorHandler;
     private boolean isClosed = false;
 
-    SessionWorker(final String roleName, final ErrorHandler errorHandler)
+    SessionWorker(final String roleName, final CountedErrorHandler errorHandler)
     {
         this.roleName = roleName;
         this.errorHandler = errorHandler;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String roleName()
     {
         return roleName;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int doWork()
     {
         int workCount = 0;
@@ -72,6 +78,9 @@ class SessionWorker<T extends Session> implements Agent
         return workCount;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public final void onClose()
     {
         if (isClosed)
@@ -98,10 +107,16 @@ class SessionWorker<T extends Session> implements Agent
         postSessionsClose();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     protected void abort()
     {
     }
 
+    /**
+     * {@inheritDoc}
+     */
     protected void closeSession(final T session)
     {
         try
@@ -114,14 +129,23 @@ class SessionWorker<T extends Session> implements Agent
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     protected void postSessionsClose()
     {
     }
 
+    /**
+     * {@inheritDoc}
+     */
     protected void preSessionsClose()
     {
     }
 
+    /**
+     * {@inheritDoc}
+     */
     protected void addSession(final T session)
     {
         sessions.add(session);

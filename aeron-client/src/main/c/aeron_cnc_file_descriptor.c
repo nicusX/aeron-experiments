@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,19 +37,17 @@ int32_t aeron_cnc_version_volatile(aeron_cnc_metadata_t *metadata)
 }
 
 aeron_cnc_load_result_t aeron_cnc_map_file_and_load_metadata(
-    const char *dir,
-    aeron_mapped_file_t *cnc_mmap,
-    aeron_cnc_metadata_t **metadata)
+    const char *dir, aeron_mapped_file_t *cnc_mmap, aeron_cnc_metadata_t **metadata)
 {
     if (NULL == metadata)
     {
-        aeron_set_err(EINVAL, "CnC metadata pointer must not be NULL");
+        AERON_SET_ERR(EINVAL, "%s", "CnC metadata pointer must not be NULL");
     }
 
     char filename[AERON_MAX_PATH];
     if (AERON_MAX_PATH <= aeron_cnc_resolve_filename(dir, filename, AERON_MAX_PATH))
     {
-        aeron_set_err(EINVAL, "CNC file path exceeds buffer sizes: %d, %s", AERON_MAX_PATH, filename);
+        AERON_SET_ERR(EINVAL, "CNC file path exceeds buffer sizes: %d, %s", AERON_MAX_PATH, filename);
     }
 
     if (aeron_file_length(filename) <= (int64_t)AERON_CNC_VERSION_AND_META_DATA_LENGTH)
@@ -59,7 +57,13 @@ aeron_cnc_load_result_t aeron_cnc_map_file_and_load_metadata(
 
     if (aeron_map_existing_file(cnc_mmap, filename) < 0)
     {
-        aeron_set_err(aeron_errcode(), "CnC file could not be mmapped: %s", aeron_errmsg());
+        if (ENOENT == errno)
+        {
+            aeron_err_clear();
+            return AERON_CNC_LOAD_AWAIT_FILE;
+        }
+
+        AERON_APPEND_ERR("CnC file could not be mmapped: %s", filename);
         return AERON_CNC_LOAD_FAILED;
     }
 
@@ -70,9 +74,9 @@ aeron_cnc_load_result_t aeron_cnc_map_file_and_load_metadata(
     }
 
     aeron_cnc_metadata_t *_metadata = (aeron_cnc_metadata_t *)cnc_mmap->addr;
-    int32_t cnc_version;
+    int32_t cnc_version = aeron_cnc_version_volatile(_metadata);
 
-    if (0 == (cnc_version = aeron_cnc_version_volatile(_metadata)))
+    if (0 == cnc_version)
     {
         aeron_unmap(cnc_mmap);
         return AERON_CNC_LOAD_AWAIT_VERSION;
@@ -80,7 +84,9 @@ aeron_cnc_load_result_t aeron_cnc_map_file_and_load_metadata(
 
     if (aeron_semantic_version_major(AERON_CNC_VERSION) != aeron_semantic_version_major(cnc_version))
     {
-        aeron_set_err(EINVAL, "CnC version not compatible: app=%d.%d.%d file=%d.%d.%d",
+        AERON_SET_ERR(
+            EINVAL,
+            "CnC version not compatible: app=%d.%d.%d file=%d.%d.%d",
             (int)aeron_semantic_version_major(AERON_CNC_VERSION),
             (int)aeron_semantic_version_minor(AERON_CNC_VERSION),
             (int)aeron_semantic_version_patch(AERON_CNC_VERSION),
@@ -99,6 +105,7 @@ aeron_cnc_load_result_t aeron_cnc_map_file_and_load_metadata(
     }
 
     *metadata = _metadata;
+
     return AERON_CNC_LOAD_SUCCESS;
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,37 +59,42 @@ int aeron_receive_channel_endpoint_create(
     aeron_receive_destination_t *straight_through_destination,
     aeron_atomic_counter_t *status_indicator,
     aeron_system_counters_t *system_counters,
-    aeron_driver_context_t *context)
+    aeron_driver_context_t *context,
+    size_t socket_rcvbuf,
+    size_t socket_sndbuf)
 {
     aeron_receive_channel_endpoint_t *_endpoint = NULL;
 
     if (aeron_alloc((void **)&_endpoint, sizeof(aeron_receive_channel_endpoint_t)) < 0)
     {
-        aeron_set_err_from_last_err_code("could not allocate receive_channel_endpoint");
+        AERON_APPEND_ERR("%s", "could not allocate receive_channel_endpoint");
         return -1;
     }
 
     if (aeron_data_packet_dispatcher_init(
         &_endpoint->dispatcher, context->conductor_proxy, context->receiver_proxy->receiver) < 0)
     {
+        AERON_APPEND_ERR("%s", "Failed to initialise data packet dispatcher");
         return -1;
     }
 
     if (aeron_int64_counter_map_init(
         &_endpoint->stream_id_to_refcnt_map, 0, 16, AERON_MAP_DEFAULT_LOAD_FACTOR) < 0)
     {
-        aeron_set_err_from_last_err_code("could not init stream_id_to_refcnt_map");
+        AERON_APPEND_ERR("%s", "could not init stream_id_to_refcnt_map");
         return -1;
     }
 
     if (aeron_int64_counter_map_init(
         &_endpoint->stream_and_session_id_to_refcnt_map, 0, 16, AERON_MAP_DEFAULT_LOAD_FACTOR) < 0)
     {
-        aeron_set_err_from_last_err_code("could not init stream_and_session_id_to_refcnt_map");
+        AERON_APPEND_ERR("%s", "could not init stream_and_session_id_to_refcnt_map");
         return -1;
     }
 
     _endpoint->conductor_fields.udp_channel = channel;
+    _endpoint->conductor_fields.socket_rcvbuf = socket_rcvbuf;
+    _endpoint->conductor_fields.socket_sndbuf = socket_sndbuf;
     _endpoint->conductor_fields.managed_resource.clientd = _endpoint;
     _endpoint->conductor_fields.managed_resource.registration_id = -1;
     _endpoint->conductor_fields.status = AERON_RECEIVE_CHANNEL_ENDPOINT_STATUS_ACTIVE;
@@ -111,10 +116,10 @@ int aeron_receive_channel_endpoint_create(
     }
 
     _endpoint->short_sends_counter = aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_SHORT_SENDS);
-    _endpoint->possible_ttl_asymmetry_counter =
-        aeron_system_counter_addr(system_counters, AERON_SYSTEM_COUNTER_POSSIBLE_TTL_ASYMMETRY);
+    _endpoint->possible_ttl_asymmetry_counter = aeron_system_counter_addr(
+        system_counters, AERON_SYSTEM_COUNTER_POSSIBLE_TTL_ASYMMETRY);
 
-    _endpoint->cached_clock = context->cached_clock;
+    _endpoint->cached_clock = context->receiver_cached_clock;
 
     if (NULL != straight_through_destination)
     {
@@ -372,7 +377,8 @@ void aeron_receive_channel_endpoint_dispatch(
             {
                 if (aeron_receive_channel_endpoint_on_data(endpoint, destination, buffer, length, addr) < 0)
                 {
-                    AERON_DRIVER_RECEIVER_ERROR(receiver, "receiver on_data: %s", aeron_errmsg());
+                    AERON_APPEND_ERR("%s", "receiver on_data");
+                    aeron_driver_receiver_log_error(receiver);
                 }
             }
             else
@@ -386,7 +392,8 @@ void aeron_receive_channel_endpoint_dispatch(
             {
                 if (aeron_receive_channel_endpoint_on_setup(endpoint, destination, buffer, length, addr) < 0)
                 {
-                    AERON_DRIVER_RECEIVER_ERROR(receiver, "receiver on_setup: %s", aeron_errmsg());
+                    AERON_APPEND_ERR("%s", "receiver on_setup");
+                    aeron_driver_receiver_log_error(receiver);
                 }
             }
             else
@@ -400,7 +407,8 @@ void aeron_receive_channel_endpoint_dispatch(
             {
                 if (aeron_receive_channel_endpoint_on_rttm(endpoint, destination, buffer, length, addr) < 0)
                 {
-                    AERON_DRIVER_RECEIVER_ERROR(receiver, "receiver on_rttm: %s", aeron_errmsg());
+                    AERON_APPEND_ERR("%s", "receiver on_rttm");
+                    aeron_driver_receiver_log_error(receiver);
                 }
             }
             else
@@ -617,7 +625,7 @@ int aeron_receive_channel_endpoint_add_destination(
 
     if (capacity_result < 0)
     {
-        aeron_set_err_from_last_err_code("%s:%d - %s", __FILE__, __LINE__, aeron_errmsg());
+        AERON_APPEND_ERR("%s", "Failed to allocate space for additional destinations");
         return -1;
     }
 
@@ -706,56 +714,88 @@ int aeron_receive_channel_endpoint_on_remove_publication_image(
 }
 
 static inline bool aeron_receive_channel_endpoint_validate_so_rcvbuf(
-    aeron_receive_channel_endpoint_t *endpoint, size_t value, const char *msg)
+    aeron_receive_channel_endpoint_t *endpoint,
+    size_t value,
+    const char *msg,
+    aeron_driver_context_t *ctx)
 {
-    for (size_t i = 0, len = endpoint->destinations.length; i < len; i++)
+    if (0 != endpoint->conductor_fields.socket_rcvbuf && endpoint->conductor_fields.socket_rcvbuf < value)
     {
-        aeron_receive_destination_t *destination = endpoint->destinations.array[i].destination;
-        if (destination->so_rcvbuf < value)
-        {
-            aeron_set_err(
-                EINVAL,
-                "%s greater than socket SO_RCVBUF, increase '"
-                AERON_RCV_INITIAL_WINDOW_LENGTH_ENV_VAR "' to match window: value=%" PRIu64 ", SO_RCVBUF=%" PRIu64,
-                msg, value, destination->so_rcvbuf);
+        AERON_SET_ERR(
+            EINVAL,
+            "%s greater than socket SO_RCVBUF, increase '"
+            AERON_RCV_INITIAL_WINDOW_LENGTH_ENV_VAR "' to match window: value=%" PRIu64 ", SO_RCVBUF=%" PRIu64,
+            msg, value, endpoint->conductor_fields.socket_rcvbuf);
 
-            return false;
-        }
+        return false;
+    }
+
+    if (0 == endpoint->conductor_fields.socket_rcvbuf && ctx->os_buffer_lengths.default_so_rcvbuf < value)
+    {
+        AERON_SET_ERR(
+            EINVAL,
+            "%s greater than socket SO_RCVBUF, increase '"
+            AERON_RCV_INITIAL_WINDOW_LENGTH_ENV_VAR "' to match window: value=%" PRIu64 ", SO_RCVBUF=%" PRIu64 " (OS Default)",
+            msg, value, ctx->os_buffer_lengths.default_so_rcvbuf);
+
+        return false;
     }
 
     return true;
 }
 
 int aeron_receiver_channel_endpoint_validate_sender_mtu_length(
-    aeron_receive_channel_endpoint_t *endpoint, size_t sender_mtu_length, size_t window_max_length)
+    aeron_receive_channel_endpoint_t *endpoint,
+    size_t sender_mtu_length,
+    size_t window_max_length,
+    aeron_driver_context_t *ctx)
 {
-    if (sender_mtu_length < AERON_DATA_HEADER_LENGTH || sender_mtu_length > AERON_MAX_UDP_PAYLOAD_LENGTH)
+    if (sender_mtu_length < AERON_DATA_HEADER_LENGTH)
     {
-        aeron_set_err(
+        AERON_SET_ERR(
             EINVAL,
-            "mtuLength must be a >= HEADER_LENGTH and <= MAX_UDP_PAYLOAD_LENGTH: mtuLength=%" PRIu64,
-            sender_mtu_length);
+            "mtuLength=%" PRIu64 " < DATA_HEADER_LENGTH=%d",
+            (uint64_t)sender_mtu_length,
+            AERON_DATA_HEADER_LENGTH);
+        return -1;
+    }
+
+    if (sender_mtu_length > AERON_MAX_UDP_PAYLOAD_LENGTH)
+    {
+        AERON_SET_ERR(
+            EINVAL,
+            "mtuLength=%" PRIu64 " > MAX_UDP_PAYLOAD_LENGTH=%d",
+            (uint64_t)sender_mtu_length,
+            AERON_MAX_UDP_PAYLOAD_LENGTH);
         return -1;
     }
 
     if ((sender_mtu_length & (AERON_LOGBUFFER_FRAME_ALIGNMENT - 1)) != 0)
     {
-        aeron_set_err(EINVAL, "mtuLength must be a multiple of FRAME_ALIGNMENT: mtuLength=%" PRIu64, sender_mtu_length);
+        AERON_SET_ERR(
+            EINVAL,
+            "mtuLength=%" PRIu64 " must be a multiple of FRAME_ALIGNMENT=%d",
+            (uint64_t)sender_mtu_length,
+            AERON_LOGBUFFER_FRAME_ALIGNMENT);
         return -1;
     }
 
     if (sender_mtu_length > window_max_length)
     {
-        aeron_set_err(EINVAL, "Initial window length must be >= to mtuLength=%" PRIu64, sender_mtu_length);
+        AERON_SET_ERR(
+            EINVAL,
+            "mtuLength=%" PRIu64 " > initialWindowLength=%" PRIu64,
+            (uint64_t)sender_mtu_length,
+            (uint64_t)window_max_length);
         return -1;
     }
 
-    if (!aeron_receive_channel_endpoint_validate_so_rcvbuf(endpoint, window_max_length, "Max Window length"))
+    if (!aeron_receive_channel_endpoint_validate_so_rcvbuf(endpoint, window_max_length, "Max Window length", ctx))
     {
         return -1;
     }
 
-    if (!aeron_receive_channel_endpoint_validate_so_rcvbuf(endpoint, window_max_length, "Sender MTU"))
+    if (!aeron_receive_channel_endpoint_validate_so_rcvbuf(endpoint, window_max_length, "Sender MTU", ctx))
     {
         return -1;
     }
@@ -856,15 +896,14 @@ int aeron_receive_channel_endpoint_add_pending_setup_destination(
         if (aeron_driver_receiver_add_pending_setup(
             receiver, endpoint, destination, 0, 0, &udp_channel->local_control) < 0)
         {
-            aeron_set_err_from_last_err_code("receiver on_add_endpoint: %s", aeron_errmsg());
+            AERON_APPEND_ERR("%s", "Failed to add pending setup for receiver");
             return -1;
         }
 
         if (aeron_receive_channel_endpoint_send_sm(
             endpoint, &destination->current_control_addr, 0, 0, 0, 0, 0, AERON_STATUS_MESSAGE_HEADER_SEND_SETUP_FLAG) < 0)
         {
-            aeron_set_err_from_last_err_code(
-                "aeron_receive_channel_endpoint_add_pending_setup send SM: %s", aeron_errmsg());
+            AERON_APPEND_ERR("%s", "Failed to send sm for receiver");
             return -1;
         }
 
@@ -882,7 +921,8 @@ int aeron_receive_channel_endpoint_add_pending_setup(
         aeron_receive_destination_t *destination = endpoint->destinations.array[0].destination;
         if (aeron_receive_channel_endpoint_add_pending_setup_destination(endpoint, receiver, destination) < 0)
         {
-            AERON_DRIVER_RECEIVER_ERROR(receiver, "%s", aeron_errmsg());
+            AERON_APPEND_ERR("%s", "");
+            aeron_driver_receiver_log_error(receiver);
         }
     }
 

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -98,6 +98,33 @@ public class ChannelUriStringBuilderTest
 
         assertEquals(
             "aeron:udp?endpoint=address:9999|term-length=131072|init-term-id=777|term-id=999|term-offset=64",
+            builder.build());
+    }
+
+    @Test
+    public void shouldGenerateChannelWithSocketParameters()
+    {
+        final ChannelUriStringBuilder builder = new ChannelUriStringBuilder()
+            .media("udp")
+            .endpoint("address:9999")
+            .socketSndbufLength(8192)
+            .socketRcvbufLength(4096);
+
+        assertEquals(
+            "aeron:udp?endpoint=address:9999|so-sndbuf=8192|so-rcvbuf=4096",
+            builder.build());
+    }
+
+    @Test
+    public void shouldGenerateChannelWithReceiverWindow()
+    {
+        final ChannelUriStringBuilder builder = new ChannelUriStringBuilder()
+            .media("udp")
+            .endpoint("address:9999")
+            .receiverWindowLength(8192);
+
+        assertEquals(
+            "aeron:udp?endpoint=address:9999|rcv-wnd=8192",
             builder.build());
     }
 }

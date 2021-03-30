@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,6 +50,13 @@ public class BasicAuctionClusterClient implements EgressListener
     private long correlationId = ThreadLocalRandom.current().nextLong();
     private long lastBidSeen = 100;
 
+    /**
+     * Construct a new cluster client for the auction.
+     *
+     * @param customerId    for the client.
+     * @param numOfBids     to make as a client.
+     * @param bidIntervalMs between the bids.
+     */
     public BasicAuctionClusterClient(final long customerId, final int numOfBids, final int bidIntervalMs)
     {
         this.customerId = customerId;
@@ -57,6 +64,9 @@ public class BasicAuctionClusterClient implements EgressListener
         this.bidIntervalMs = bidIntervalMs;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     // tag::response[]
     public void onMessage(
         final long clusterSessionId,
@@ -78,6 +88,9 @@ public class BasicAuctionClusterClient implements EgressListener
             customerId + ", " + currentPrice + ", " + bidSucceed + ")");
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onSessionEvent(
         final long correlationId,
         final long clusterSessionId,
@@ -91,6 +104,9 @@ public class BasicAuctionClusterClient implements EgressListener
             leaderMemberId + ", " + code + ", " + detail + ")");
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onNewLeader(
         final long clusterSessionId,
         final long leadershipTermId,
@@ -159,6 +175,12 @@ public class BasicAuctionClusterClient implements EgressListener
     }
     // end::publish[]
 
+    /**
+     * Ingress endpoints generated from a list of hostnames.
+     *
+     * @param hostnames for the cluster members.
+     * @return a formatted string of ingress endpoints for connecting to a cluster.
+     */
     public static String ingressEndpoints(final List<String> hostnames)
     {
         final StringBuilder sb = new StringBuilder();
@@ -191,7 +213,10 @@ public class BasicAuctionClusterClient implements EgressListener
         final int numOfBids = Integer.parseInt(System.getProperty("aeron.cluster.tutorial.numOfBids"));         // <2>
         final int bidIntervalMs = Integer.parseInt(System.getProperty("aeron.cluster.tutorial.bidIntervalMs")); // <3>
 
-        final String ingressEndpoints = ingressEndpoints(Arrays.asList("localhost", "localhost", "localhost"));
+        final String[] hostnames = System.getProperty(
+            "aeron.cluster.tutorial.hostnames", "localhost,localhost,localhost").split(",");
+        final String ingressEndpoints = ingressEndpoints(Arrays.asList(hostnames));
+
         final BasicAuctionClusterClient client = new BasicAuctionClusterClient(customerId, numOfBids, bidIntervalMs);
 
         // tag::connect[]

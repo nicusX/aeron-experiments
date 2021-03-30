@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -55,26 +55,41 @@ class ListRecordingSubscriptionsSession implements Session
         this.proxy = proxy;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
         controlSession.activeListing(null);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void abort()
     {
         isDone = true;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean isDone()
     {
         return isDone;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long sessionId()
     {
         return Aeron.NULL_VALUE;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int doWork()
     {
         int workCount = 0;

@@ -1,4 +1,5 @@
 /*
+ * Copyright 2014-2021 Real Logic Limited.
  * Copyright 2015 Kaazing Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,7 +55,7 @@ public class SimplePublisher
         final Aeron.Context ctx = new Aeron.Context();
 
         // Create an Aeron instance with client-provided context configuration and connect to the
-        // media driver, and create a Publication.  The Aeron and Publication classes implement
+        // media driver, and create a Publication. The Aeron and Publication classes implement
         // AutoCloseable, and will automatically clean up resources when this try block is finished.
         try (Aeron aeron = Aeron.connect(ctx);
             Publication publication = aeron.addPublication(channel, streamId))

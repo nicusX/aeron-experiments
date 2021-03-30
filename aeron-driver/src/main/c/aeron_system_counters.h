@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +47,8 @@ typedef enum aeron_system_counter_enum_stct
     AERON_SYSTEM_COUNTER_LOSS_GAP_FILLS = 23,
     AERON_SYSTEM_COUNTER_CLIENT_TIMEOUTS = 24,
     AERON_SYSTEM_COUNTER_RESOLUTION_CHANGES = 25,
+    AERON_SYSTEM_COUNTER_CONDUCTOR_MAX_CYCLE_TIME = 26,
+    AERON_SYSTEM_COUNTER_CONDUCTOR_CYCLE_TIME_THRESHOLD_EXCEEDED = 27,
 
     // Add all new counters before this one (used for a static assertion).
     AERON_SYSTEM_COUNTER_DUMMY_LAST,

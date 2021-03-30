@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@
 #include "reports/aeron_loss_reporter.h"
 
 #define AERON_DRIVER_CONDUCTOR_LINGER_RESOURCE_TIMEOUT_NS (5 * 1000 * 1000 * 1000LL)
-#define AERON_DRIVER_CONDUCTOR_CLOCK_UPDATE_DURATION_NS (1000 * 1000LL)
+#define AERON_DRIVER_CONDUCTOR_CLOCK_UPDATE_INTERNAL_NS (1000 * 1000LL)
 
 typedef struct aeron_publication_link_stct
 {
@@ -278,13 +278,15 @@ typedef struct aeron_driver_conductor_stct
     int64_t *errors_counter;
     int64_t *unblocked_commands_counter;
     int64_t *client_timeouts_counter;
+    int64_t *max_cycle_time_counter;
+    int64_t *cycle_time_threshold_exceeded_counter;
 
     int64_t clock_update_deadline_ns;
 
     int32_t next_session_id;
     int32_t publication_reserved_session_id_low;
     int32_t publication_reserved_session_id_high;
-    int64_t time_of_last_timeout_check_ns;
+    int64_t timeout_check_deadline_ns;
     int64_t time_of_last_to_driver_position_change_ns;
     int64_t last_consumer_command_position;
 
@@ -498,7 +500,6 @@ aeron_send_channel_endpoint_t *aeron_driver_conductor_find_send_channel_endpoint
 
 aeron_receive_channel_endpoint_t *aeron_driver_conductor_find_receive_channel_endpoint_by_tag(
     aeron_driver_conductor_t *conductor, int64_t channel_tag_id);
-
 
 inline bool aeron_driver_conductor_is_subscribable_linked(
     aeron_subscription_link_t *link, aeron_subscribable_t *subscribable)
@@ -720,8 +721,7 @@ inline aeron_publication_image_t * aeron_driver_conductor_find_publication_image
     return NULL;
 }
 
-inline void aeron_driver_init_subscription_channel(
-    size_t uri_length, const char *uri, aeron_subscription_link_t *link)
+inline void aeron_driver_init_subscription_channel(size_t uri_length, const char *uri, aeron_subscription_link_t *link)
 {
     size_t copy_length = sizeof(link->channel) - 1;
     copy_length = uri_length < copy_length ? uri_length : copy_length;

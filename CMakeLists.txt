@@ -1,5 +1,5 @@
 #
-# Copyright 2014-2020 Real Logic Limited.
+# Copyright 2014-2021 Real Logic Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -75,8 +75,7 @@ if (AERON_TESTS)
         PREFIX "${AERON_THIRDPARTY_BINARY_DIR}/gmock"
         CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER};-DCMAKE_CXX_FLAGS=-D_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING
         BUILD_BYPRODUCTS "${AERON_THIRDPARTY_BINARY_DIR}/gmock/src/gmock-build/lib/${CMAKE_CFG_INTDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}gmock${CMAKE_STATIC_LIBRARY_SUFFIX};${AERON_THIRDPARTY_BINARY_DIR}/gmock/src/gmock-build/lib/${CMAKE_CFG_INTDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}gmock_main${CMAKE_STATIC_LIBRARY_SUFFIX}"
-        INSTALL_COMMAND ""
-    )
+        INSTALL_COMMAND "")
 
     ExternalProject_Get_Property(gmock source_dir)
     set(GMOCK_SOURCE_DIR ${source_dir})
@@ -100,15 +99,19 @@ endif ()
 # HdrHistogram usage - use MD5 as means to identify snapshot
 
 if (AERON_BUILD_SAMPLES)
+
+    if (MSVC)
+        SET(HDR_HISTOGRAM_CMAKE_C_FLAGS "-DCMAKE_C_FLAGS_DEBUG=/MTd;-DCMAKE_C_FLAGS_RELEASE=/MT")
+    endif()
+
     ExternalProject_Add(
         hdr_histogram
         URL ${CMAKE_CURRENT_SOURCE_DIR}/cppbuild/HdrHistogram_c-0.11.2.zip
         URL_MD5 6050b8c88a2979545522e9fcb17da9bb
-        CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER};-DCMAKE_C_STANDARD=99;-DHDR_LOG_REQUIRED=OFF;-DCMAKE_IGNORE_PATH="optimized;C:/Program Files/PostgreSQL/12/lib"
+        CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER};-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER};-DCMAKE_C_STANDARD=99;-DHDR_LOG_REQUIRED=OFF;-DCMAKE_IGNORE_PATH="optimized;C:/Program Files/PostgreSQL/12/lib;${HDR_HISTOGRAM_CMAKE_C_FLAGS}"
         PREFIX "${AERON_THIRDPARTY_BINARY_DIR}/hdr_histogram"
         BUILD_BYPRODUCTS "${AERON_THIRDPARTY_BINARY_DIR}/hdr_histogram/src/hdr_histogram-build/src/${CMAKE_CFG_INTDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}hdr_histogram_static${CMAKE_STATIC_LIBRARY_SUFFIX}"
-        INSTALL_COMMAND ""
-    )
+        INSTALL_COMMAND "")
 
     ExternalProject_Get_Property(hdr_histogram source_dir)
     set(HDRHISTOGRAM_SOURCE_DIR ${source_dir})
@@ -116,8 +119,7 @@ if (AERON_BUILD_SAMPLES)
     set(HDRHISTOGRAM_BINARY_DIR ${binary_dir})
 
     set(HDRHISTOGRAM_LIBS
-        ${HDRHISTOGRAM_BINARY_DIR}/src/${CMAKE_CFG_INTDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}hdr_histogram_static${CMAKE_STATIC_LIBRARY_SUFFIX}
-    )
+        ${HDRHISTOGRAM_BINARY_DIR}/src/${CMAKE_CFG_INTDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}hdr_histogram_static${CMAKE_STATIC_LIBRARY_SUFFIX})
 endif ()
 
 unset(AERON_THIRDPARTY_BINARY_DIR)
@@ -204,8 +206,8 @@ elseif (MSVC)
         add_definitions(-D_ENABLE_EXTENDED_ALIGNED_STORAGE)
     endif ()
 
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd /Od /Zi /MP")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT /MP")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd /Od /Zi /MP /wd4251")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT /MP /wd4251")
 
     unset(CMAKE_C_STANDARD) # To avoid `/std:c11` in the compiler options
 
@@ -304,7 +306,7 @@ if (BUILD_AERON_ARCHIVE_API)
         "${CMAKE_CURRENT_SOURCE_DIR}}/aeron-archive/src/main/java/*.java")
 
     add_custom_command(OUTPUT ${AERON_ALL_JAR}
-        COMMAND ${GRADLE_WRAPPER} :aeron-all:clean :aeron-all:assemble --no-daemon -x javadoc --console=plain -q
+        COMMAND ${CMAKE_COMMAND} -E env JAVA_HOME=$ENV{JAVA_HOME} BUILD_JAVA_HOME=$ENV{BUILD_JAVA_HOME} BUILD_JAVA_VERSION=$ENV{BUILD_JAVA_VERSION} ${GRADLE_WRAPPER} :aeron-all:clean :aeron-all:assemble --no-daemon -x javadoc --console=plain -q
         DEPENDS ${AERON_ALL_SOURCES}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Generating aeron-all jar")
@@ -326,8 +328,7 @@ if (AERON_BUILD_DOCUMENTATION AND DOXYGEN_FOUND)
         doc
         ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        COMMENT "Generating API documentation with Doxygen" VERBATIM
-    )
+        COMMENT "Generating API documentation with Doxygen" VERBATIM)
 
     if (AERON_INSTALL_TARGETS)
         # install the doc if it has been built

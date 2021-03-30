@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,6 +56,7 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
     private long replayPosition = NULL_POSITION;
     private long srcStopPosition = NULL_POSITION;
     private long srcRecordingPosition = NULL_POSITION;
+    private final long dstStopPosition;
     private long timeOfLastActionMs;
     private final long actionTimeoutMs;
     private final long replicationId;
@@ -90,6 +91,7 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         final long channelTagId,
         final long subscriptionTagId,
         final long replicationId,
+        final long stopPosition,
         final String liveDestination,
         final String replicationChannel,
         final RecordingSummary recordingSummary,
@@ -112,6 +114,7 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         this.conductor = controlSession.archiveConductor();
         this.controlSession = controlSession;
         this.actionTimeoutMs = TimeUnit.NANOSECONDS.toMillis(context.messageTimeoutNs());
+        this.dstStopPosition = stopPosition;
 
         this.isTagged = NULL_VALUE != channelTagId || NULL_VALUE != subscriptionTagId;
         this.channelTagId = NULL_VALUE == channelTagId ? replicationId : channelTagId;
@@ -124,27 +127,39 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public long sessionId()
     {
         return replicationId;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public boolean isDone()
     {
         return state == State.DONE;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void abort()
     {
         this.state(State.DONE);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void close()
     {
         final ArchiveConductor archiveConductor = controlSession.archiveConductor();
         final CountedErrorHandler countedErrorHandler = archiveConductor.context().countedErrorHandler();
 
-        stopRecording(countedErrorHandler);
+        stopRecording();
         stopReplaySession(countedErrorHandler);
 
         CloseHelper.close(countedErrorHandler, asyncConnect);
@@ -152,6 +167,9 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         archiveConductor.removeReplicationSession(this);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int doWork()
     {
         int workCount = 0;
@@ -213,6 +231,9 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         return workCount;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void onRecordingDescriptor(
         final long controlSessionId,
         final long correlationId,
@@ -397,22 +418,17 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         final boolean isMds = isTagged || null != liveDestination;
         final ChannelUri channelUri = ChannelUri.parse(replicationChannel);
         final String endpoint = channelUri.get(CommonContext.ENDPOINT_PARAM_NAME);
-        final ChannelUriStringBuilder builder = new ChannelUriStringBuilder()
-            .media(channelUri)
-            .sessionId(replaySessionId)
-            .alias(channelUri)
-            .rejoin(false);
+        channelUri.put(CommonContext.SESSION_ID_PARAM_NAME, Integer.toString(replaySessionId));
+        channelUri.put(CommonContext.REJOIN_PARAM_NAME, "false");
 
         if (isMds)
         {
-            builder.tags(channelTagId + "," + subscriptionTagId).controlMode(CommonContext.MDC_CONTROL_MODE_MANUAL);
-        }
-        else
-        {
-            builder.endpoint(endpoint);
+            channelUri.remove(CommonContext.ENDPOINT_PARAM_NAME);
+            channelUri.put(CommonContext.TAGS_PARAM_NAME, channelTagId + "," + subscriptionTagId);
+            channelUri.put(CommonContext.MDC_CONTROL_MODE_PARAM_NAME, CommonContext.MDC_CONTROL_MODE_MANUAL);
         }
 
-        final String channel = builder.build();
+        final String channel = channelUri.toString();
         recordingSubscription = conductor.extendRecording(
             replicationId, dstRecordingId, replayStreamId, SourceLocation.REMOTE, true, channel, controlSession);
 
@@ -467,7 +483,7 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
             if (srcArchive.archiveProxy().replay(
                 srcRecordingId,
                 replayPosition,
-                Long.MAX_VALUE,
+                NULL_POSITION == dstStopPosition ? AeronArchive.NULL_LENGTH : dstStopPosition - replayPosition,
                 channelUri.toString(),
                 replayStreamId,
                 correlationId,
@@ -524,15 +540,16 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         int workCount = 0;
 
         final long position = image.position();
-        if (image.isEndOfStream() || image.isClosed() || (NULL_VALUE != srcStopPosition && position >= srcStopPosition))
+        if ((NULL_POSITION != srcStopPosition && position >= srcStopPosition) ||
+            (NULL_POSITION != dstStopPosition && position >= dstStopPosition) ||
+            image.isEndOfStream() || image.isClosed())
         {
-            if ((NULL_VALUE != srcStopPosition && position >= srcStopPosition) ||
-                (NULL_VALUE == srcStopPosition && image.isEndOfStream()))
+            if ((NULL_POSITION != srcStopPosition && position >= srcStopPosition))
             {
-                srcReplaySessionId = NULL_VALUE;
                 signal(position, SYNC);
             }
 
+            srcReplaySessionId = NULL_VALUE;
             state(State.DONE);
             workCount += 1;
         }
@@ -593,8 +610,7 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
                 final long position = image.position();
                 if (shouldAddLiveDestination(position))
                 {
-                    final String liveChannel = ChannelUri.addSessionId(liveDestination, replaySessionId);
-                    recordingSubscription.asyncAddDestination(liveChannel);
+                    recordingSubscription.asyncAddDestination(liveDestination);
                     isLiveAdded = true;
                 }
                 else if (shouldStopReplay(position))
@@ -633,7 +649,7 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
             final ControlResponseCode code = poller.code();
             if (ControlResponseCode.ERROR == code)
             {
-                throw new ArchiveException(poller.errorMessage(), code.value());
+                throw new ArchiveException(poller.errorMessage(), (int)poller.relevantId());
             }
 
             return poller.correlationId() == activeCorrelationId && ControlResponseCode.OK == code;
@@ -673,12 +689,11 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
         }
     }
 
-    private void stopRecording(final CountedErrorHandler countedErrorHandler)
+    private void stopRecording()
     {
         if (null != recordingSubscription)
         {
-            conductor.removeRecordingSubscription(recordingSubscription.registrationId());
-            CloseHelper.close(countedErrorHandler, recordingSubscription);
+            conductor.stopRecordingSubscription(recordingSubscription.registrationId());
             recordingSubscription = null;
         }
     }
@@ -705,14 +720,14 @@ class ReplicationSession implements Session, RecordingDescriptorConsumer
 
     private void state(final State newState)
     {
-        timeOfLastActionMs = epochClock.time();
         stateChange(state, newState, replicationId);
         state = newState;
         activeCorrelationId = NULL_VALUE;
+        timeOfLastActionMs = epochClock.time();
     }
 
     void stateChange(final State oldState, final State newState, final long replicationId)
     {
-        //System.out.println("ReplicationSession: " + timeOfLastActionMs + ": " + oldState + " -> " + newState);
+        //System.out.println("ReplicationSession: " + oldState + " -> " + newState + " replicationId=" + replicationId);
     }
 }

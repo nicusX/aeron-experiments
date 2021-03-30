@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -291,6 +291,11 @@ public class StatusMessageFlyweight extends HeaderFlyweight
             frameLength(HEADER_LENGTH + SIZE_OF_LONG);
             putLongUnaligned(GROUP_TAG_FIELD_OFFSET, groupTag);
         }
+        else
+        {
+            // make sure to explicitly set the frameLength in case of previous tags used.
+            frameLength(HEADER_LENGTH);
+        }
 
         return this;
     }
@@ -377,6 +382,9 @@ public class StatusMessageFlyweight extends HeaderFlyweight
         return this;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public String toString()
     {
         return "STATUS{" +

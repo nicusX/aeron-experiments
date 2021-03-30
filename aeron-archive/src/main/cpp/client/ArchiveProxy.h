@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1084,6 +1084,18 @@ private:
         std::int32_t srcControlStreamId,
         const std::string &srcControlChannel,
         const std::string &liveDestination,
+        std::int64_t correlationId,
+        std::int64_t controlSessionId);
+
+    util::index_t replicate(
+        AtomicBuffer &buffer,
+        std::int64_t srcRecordingId,
+        std::int64_t dstRecordingId,
+        std::int64_t stopPosition,
+        std::int32_t srcControlStreamId,
+        const std::string &srcControlChannel,
+        const std::string &liveDestination,
+        const std::string &replicationChannel,
         std::int64_t correlationId,
         std::int64_t controlSessionId);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2020 Real Logic Limited.
+ * Copyright 2014-2021 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -80,8 +80,7 @@ int aeron_distinct_error_log_init(
 
 void aeron_distinct_error_log_close(aeron_distinct_error_log_t *log);
 
-int aeron_distinct_error_log_record(
-    aeron_distinct_error_log_t *log, int error_code, const char *description, const char *message);
+int aeron_distinct_error_log_record(aeron_distinct_error_log_t *log, int error_code, const char *description);
 
 bool aeron_error_log_exists(const uint8_t *buffer, size_t buffer_size);
 
