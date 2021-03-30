@@ -1,6 +1,21 @@
+/*
+ * Copyright 2014-2021 Real Logic Limited.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.aeron.samples;
 
-import io.aeron.Aeron;
+import io.aeron.*;
 import io.aeron.Publication;
 import io.aeron.Subscription;
 import io.aeron.driver.MediaDriver;
@@ -23,9 +38,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Pong component of Ping-Pong, using embedded, low-latency MediaDriver
  * <p>
  * Echoes back messages from {@link EmbeddedLowLatencyPing}.
- * @see EmbeddedLowLatencyPing
  *
- * @throws UnknownHostException if something is wrong with the canonical hostname (shouldn't)
+ * @see EmbeddedLowLatencyPing
  */
 public class EmbeddedLowLatencyPong
 {
@@ -43,17 +57,18 @@ public class EmbeddedLowLatencyPong
      * Main method for launching the process.
      *
      * @param args passed to the process.
+     * @throws UnknownHostException if something is wrong with the canonical hostname (shouldn't)
      */
     public static void main(final String[] args) throws UnknownHostException
     {
         // Always use embedded media driver
         final MediaDriver.Context driverCtx = new MediaDriver.Context()
-                .termBufferSparseFile(false)
-                .useWindowsHighResTimer(true)
-                .threadingMode(ThreadingMode.DEDICATED)
-                .conductorIdleStrategy(BusySpinIdleStrategy.INSTANCE)
-                .receiverIdleStrategy(NoOpIdleStrategy.INSTANCE)
-                .senderIdleStrategy(NoOpIdleStrategy.INSTANCE);
+            .termBufferSparseFile(false)
+            .useWindowsHighResTimer(true)
+            .threadingMode(ThreadingMode.DEDICATED)
+            .conductorIdleStrategy(BusySpinIdleStrategy.INSTANCE)
+            .receiverIdleStrategy(NoOpIdleStrategy.INSTANCE)
+            .senderIdleStrategy(NoOpIdleStrategy.INSTANCE);
         final MediaDriver driver = MediaDriver.launchEmbedded(driverCtx);
 
         final Aeron.Context ctx = new Aeron.Context();
@@ -76,14 +91,14 @@ public class EmbeddedLowLatencyPong
         SigInt.register(() -> running.set(false));
 
         try (Aeron aeron = Aeron.connect(ctx);
-             Subscription subscription = aeron.addSubscription(PING_CHANNEL, PING_STREAM_ID);
-             Publication publication = EXCLUSIVE_PUBLICATIONS ?
-                     aeron.addExclusivePublication(PONG_CHANNEL, PONG_STREAM_ID) :
-                     aeron.addPublication(PONG_CHANNEL, PONG_STREAM_ID))
+            Subscription subscription = aeron.addSubscription(PING_CHANNEL, PING_STREAM_ID);
+            Publication publication = EXCLUSIVE_PUBLICATIONS ?
+                aeron.addExclusivePublication(PONG_CHANNEL, PONG_STREAM_ID) :
+                aeron.addPublication(PONG_CHANNEL, PONG_STREAM_ID))
         {
             final BufferClaim bufferClaim = new BufferClaim();
             final FragmentHandler fragmentHandler = (buffer, offset, length, header) ->
-                    pingHandler(bufferClaim, publication, buffer, offset, length, header);
+                pingHandler(bufferClaim, publication, buffer, offset, length, header);
 
             while (running.get())
             {
@@ -97,12 +112,12 @@ public class EmbeddedLowLatencyPong
     }
 
     private static void pingHandler(
-            final BufferClaim bufferClaim,
-            final Publication pongPublication,
-            final DirectBuffer buffer,
-            final int offset,
-            final int length,
-            final Header header)
+        final BufferClaim bufferClaim,
+        final Publication pongPublication,
+        final DirectBuffer buffer,
+        final int offset,
+        final int length,
+        final Header header)
     {
         PING_HANDLER_IDLE_STRATEGY.reset();
         while (pongPublication.tryClaim(length, bufferClaim) <= 0)
@@ -111,8 +126,8 @@ public class EmbeddedLowLatencyPong
         }
 
         bufferClaim
-                .flags(header.flags())
-                .putBytes(buffer, offset, length)
-                .commit();
+            .flags(header.flags())
+            .putBytes(buffer, offset, length)
+            .commit();
     }
 }
