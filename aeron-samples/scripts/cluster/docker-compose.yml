@@ -1,0 +1,144 @@
+version: "3.8"
+
+services:
+  node0:
+    build: .
+    shm_size: 512M
+    working_dir: /var/tmp/code
+    volumes:
+      - ../../..:/var/tmp/code/:rw
+    entrypoint: >
+      bash -c "java -cp ./aeron-all/build/libs/aeron-all-1.33.0-SNAPSHOT.jar \
+        -javaagent:./aeron-agent/build/libs/aeron-agent-1.33.0-SNAPSHOT.jar \
+        -Daeron.event.cluster.log=all \
+        -XX:+UseBiasedLocking \
+        -XX:BiasedLockingStartupDelay=0 \
+        -XX:+UnlockExperimentalVMOptions \
+        -XX:+TrustFinalNonStaticFields \
+        -XX:+UnlockDiagnosticVMOptions \
+        -XX:GuaranteedSafepointInterval=300000 \
+        -XX:+UseParallelGC \
+        --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+        -Daeron.dir=/var/tmp/code/aeron-samples/.cluster-aerondir/ \
+        -Daeron.cluster.tutorial.baseDir=/var/tmp/code/aeron-samples/.cluster-data/ \
+        -Daeron.cluster.tutorial.hostnames=node0,node1,node2 \
+        -Daeron.cluster.tutorial.nodeId=0 \
+        io.aeron.samples.cluster.tutorial.BasicAuctionClusteredServiceNode"
+
+  node1:
+    build: .
+    shm_size: 512M
+    working_dir: /var/tmp/code
+    volumes:
+      - ../../..:/var/tmp/code/:rw
+    entrypoint: >
+      bash -c "java -cp ./aeron-all/build/libs/aeron-all-1.33.0-SNAPSHOT.jar \
+        -javaagent:./aeron-agent/build/libs/aeron-agent-1.33.0-SNAPSHOT.jar \
+        -Daeron.event.cluster.log=all \
+        -XX:+UseBiasedLocking \
+        -XX:BiasedLockingStartupDelay=0 \
+        -XX:+UnlockExperimentalVMOptions \
+        -XX:+TrustFinalNonStaticFields \
+        -XX:+UnlockDiagnosticVMOptions \
+        -XX:GuaranteedSafepointInterval=300000 \
+        -XX:+UseParallelGC \
+        --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+        -Daeron.dir=/var/tmp/code/aeron-samples/.cluster-aerondir/ \
+        -Daeron.cluster.tutorial.baseDir=/var/tmp/code/aeron-samples/.cluster-data/ \
+        -Daeron.cluster.tutorial.hostnames=node0,node1,node2 \
+        -Daeron.cluster.tutorial.nodeId=1 \
+        io.aeron.samples.cluster.tutorial.BasicAuctionClusteredServiceNode"
+
+  node2:
+    build: .
+    shm_size: 512M
+    working_dir: /var/tmp/code
+    volumes:
+      - ../../..:/var/tmp/code/:rw
+    entrypoint: >
+      bash -c "java -cp ./aeron-all/build/libs/aeron-all-1.33.0-SNAPSHOT.jar \
+        -javaagent:./aeron-agent/build/libs/aeron-agent-1.33.0-SNAPSHOT.jar \
+        -Daeron.event.cluster.log=all \
+        -XX:+UseBiasedLocking \
+        -XX:BiasedLockingStartupDelay=0 \
+        -XX:+UnlockExperimentalVMOptions \
+        -XX:+TrustFinalNonStaticFields \
+        -XX:+UnlockDiagnosticVMOptions \
+        -XX:GuaranteedSafepointInterval=300000 \
+        -XX:+UseParallelGC \
+        --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+        -Daeron.dir=/var/tmp/code/aeron-samples/.cluster-aerondir/ \
+        -Daeron.cluster.tutorial.baseDir=/var/tmp/code/aeron-samples/.cluster-data/ \
+        -Daeron.cluster.tutorial.hostnames=node0,node1,node2 \
+        -Daeron.cluster.tutorial.nodeId=2 \
+        io.aeron.samples.cluster.tutorial.BasicAuctionClusteredServiceNode"
+
+  client-a:
+    build: .
+    shm_size: 512M
+    working_dir: /var/tmp/code
+    volumes:
+      - ../../..:/var/tmp/code/:rw
+    entrypoint: >
+      bash -c "java -cp ./aeron-all/build/libs/aeron-all-1.33.0-SNAPSHOT.jar \
+        -XX:+UseBiasedLocking \
+        -XX:BiasedLockingStartupDelay=0 \
+        -XX:+UnlockExperimentalVMOptions \
+        -XX:+TrustFinalNonStaticFields \
+        -XX:+UnlockDiagnosticVMOptions \
+        -XX:GuaranteedSafepointInterval=300000 \
+        -XX:+UseParallelGC \
+        --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+        -Daeron.cluster.tutorial.hostnames=node0,node1,node2 \
+        -Daeron.cluster.tutorial.customerId="123" \
+        -Daeron.cluster.tutorial.client.hostname="client-a" \
+        -Daeron.cluster.tutorial.numOfBids="2147483647" \
+        -Daeron.cluster.tutorial.bidIntervalMs="500" \
+        io.aeron.samples.cluster.tutorial.BasicAuctionClusterClient"
+#      Note numOfBids="2147483647" ~ run forever
+
+  client-b:
+    build: .
+    shm_size: 512M
+    working_dir: /var/tmp/code
+    volumes:
+      - ../../..:/var/tmp/code/:rw
+    entrypoint: >
+      bash -c "java -cp ./aeron-all/build/libs/aeron-all-1.33.0-SNAPSHOT.jar \
+        -XX:+UseBiasedLocking \
+        -XX:BiasedLockingStartupDelay=0 \
+        -XX:+UnlockExperimentalVMOptions \
+        -XX:+TrustFinalNonStaticFields \
+        -XX:+UnlockDiagnosticVMOptions \
+        -XX:GuaranteedSafepointInterval=300000 \
+        -XX:+UseParallelGC \
+        --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+        -Daeron.cluster.tutorial.hostnames=node0,node1,node2 \
+        -Daeron.cluster.tutorial.customerId="456" \
+        -Daeron.cluster.tutorial.client.hostname="client-b" \
+        -Daeron.cluster.tutorial.numOfBids="2147483647" \
+        -Daeron.cluster.tutorial.bidIntervalMs="1000" \
+        io.aeron.samples.cluster.tutorial.BasicAuctionClusterClient"
+
+  client-c:
+    build: .
+    shm_size: 512M
+    working_dir: /var/tmp/code
+    volumes:
+      - ../../..:/var/tmp/code/:rw
+    entrypoint: >
+      bash -c "java -cp ./aeron-all/build/libs/aeron-all-1.33.0-SNAPSHOT.jar \
+        -XX:+UseBiasedLocking \
+        -XX:BiasedLockingStartupDelay=0 \
+        -XX:+UnlockExperimentalVMOptions \
+        -XX:+TrustFinalNonStaticFields \
+        -XX:+UnlockDiagnosticVMOptions \
+        -XX:GuaranteedSafepointInterval=300000 \
+        -XX:+UseParallelGC \
+        --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+        -Daeron.cluster.tutorial.hostnames=node0,node1,node2 \
+        -Daeron.cluster.tutorial.customerId="789" \
+        -Daeron.cluster.tutorial.client.hostname="client-c" \
+        -Daeron.cluster.tutorial.numOfBids="2147483647" \
+        -Daeron.cluster.tutorial.bidIntervalMs="700" \
+        io.aeron.samples.cluster.tutorial.BasicAuctionClusterClient"

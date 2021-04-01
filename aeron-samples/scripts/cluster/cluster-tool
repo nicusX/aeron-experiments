@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+source ./script-common
+
+${JAVA_HOME}/bin/java \
+  -cp ../../../aeron-all/build/libs/aeron-all-${VERSION}.jar \
+  io.aeron.cluster.ClusterTool "$@"

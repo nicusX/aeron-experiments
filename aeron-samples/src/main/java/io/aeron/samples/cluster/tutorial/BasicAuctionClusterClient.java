@@ -137,8 +137,7 @@ public class BasicAuctionClusterClient implements EgressListener
                 --bidsLeftToSend;
 
                 printOutput(
-                    "Sent(" + (correlationId) + ", " + customerId + ", " + price + ") bidsRemaining=" +
-                    bidsLeftToSend);
+                    "Sent(" + (correlationId) + ", " + customerId + ", " + price + ") bidsRemaining=" + bidsLeftToSend);
             }
             else if (keepAliveDeadlineMs <= currentTimeMs)         // <2>
             {
@@ -212,12 +211,22 @@ public class BasicAuctionClusterClient implements EgressListener
         final int customerId = Integer.parseInt(System.getProperty("aeron.cluster.tutorial.customerId"));       // <1>
         final int numOfBids = Integer.parseInt(System.getProperty("aeron.cluster.tutorial.numOfBids"));         // <2>
         final int bidIntervalMs = Integer.parseInt(System.getProperty("aeron.cluster.tutorial.bidIntervalMs")); // <3>
+        System.out.println(String.format("CustomerId: %d, %d bids each delayed by %d ms", customerId, numOfBids, bidIntervalMs));
+
+        final String clientHostname = System.getProperty("aeron.cluster.tutorial.client.hostname");
+        System.out.println("Client Hostname: " + clientHostname);
 
         final String[] hostnames = System.getProperty(
             "aeron.cluster.tutorial.hostnames", "localhost,localhost,localhost").split(",");
+        System.out.println("Cluster hostnames: " + hostnames);
+
         final String ingressEndpoints = ingressEndpoints(Arrays.asList(hostnames));
+        System.out.println("Ingress endpoints: " + ingressEndpoints);
 
         final BasicAuctionClusterClient client = new BasicAuctionClusterClient(customerId, numOfBids, bidIntervalMs);
+
+        final String egressChannel = String.format("aeron:udp?endpoint=%s:0", clientHostname);
+        System.out.println("Egress channel: " + egressChannel);
 
         // tag::connect[]
         try (
@@ -228,11 +237,12 @@ public class BasicAuctionClusterClient implements EgressListener
             AeronCluster aeronCluster = AeronCluster.connect(
                 new AeronCluster.Context()
                 .egressListener(client)                                                                         // <2>
-                .egressChannel("aeron:udp?endpoint=localhost:0")                                                // <3>
+                .egressChannel(egressChannel)                                                // <3>
                 .aeronDirectoryName(mediaDriver.aeronDirectoryName())
                 .ingressChannel("aeron:udp")                                                                    // <4>
                 .ingressEndpoints(ingressEndpoints)))                                                           // <5>
         {
+            System.out.println("Aeron dir: " + mediaDriver.aeronDirectoryName());
         // end::connect[]
             client.bidInAuction(aeronCluster);
         }

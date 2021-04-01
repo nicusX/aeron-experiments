@@ -120,12 +120,22 @@ public class BasicAuctionClusteredServiceNode
     public static void main(final String[] args)
     {
         final int nodeId = parseInt(System.getProperty("aeron.cluster.tutorial.nodeId"));               // <1>
+        System.out.println("NodeId: " + nodeId);
+
         final String[] hostnames = System.getProperty(
             "aeron.cluster.tutorial.hostnames", "localhost,localhost,localhost").split(",");            // <2>
         final String hostname = hostnames[nodeId];
+        System.out.println("Hostname: " + hostname);
 
-        final File baseDir = new File(System.getProperty("user.dir"), "node" + nodeId);                 // <3>
+        // [nicus] I changed the behaviour here, to optionally pass the cluster directory as a separate
+        //          system property: aeron.cluster.tutorial.baseDir
+        final String defaultBaseDir = System.getProperty("user.dir");
+        final File baseDir = new File(System
+            .getProperty("aeron.cluster.tutorial.baseDir", defaultBaseDir), "node" + nodeId);                 // <3>
+        System.out.println("Base Dir: " + baseDir);
+
         final String aeronDirName = CommonContext.getAeronDirectoryName() + "-" + nodeId + "-driver";
+        System.out.println("Aeron Dir: " + aeronDirName);
 
         final ShutdownSignalBarrier barrier = new ShutdownSignalBarrier();                              // <4>
         // end::main[]
@@ -173,11 +183,11 @@ public class BasicAuctionClusteredServiceNode
         // tag::clustered_service[]
         final ClusteredServiceContainer.Context clusteredServiceContext =
             new ClusteredServiceContainer.Context()
-            .aeronDirectoryName(aeronDirName)                                                            // <1>
-            .archiveContext(aeronArchiveContext.clone())                                                 // <2>
-            .clusterDir(new File(baseDir, "service"))
-            .clusteredService(new BasicAuctionClusteredService())                                        // <3>
-            .errorHandler(errorHandler("Clustered Service"));
+                .aeronDirectoryName(aeronDirName)                                                            // <1>
+                .archiveContext(aeronArchiveContext.clone())                                                 // <2>
+                .clusterDir(new File(baseDir, "service"))
+                .clusteredService(new BasicAuctionClusteredService())                                        // <3>
+                .errorHandler(errorHandler("Clustered Service"));
         // end::clustered_service[]
 
         // tag::running[]
