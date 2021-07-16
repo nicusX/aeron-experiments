@@ -24,12 +24,13 @@
 
 extern "C"
 {
-#include "concurrent/aeron_thread.h"
 #include "aeron_system_counters.h"
 #include "command/aeron_control_protocol.h"
+#include "aeron_csv_table_name_resolver.h"
+#include "util/aeron_error.h"
 }
 
-#define PUB_URI "aeron:udp?endpoint=localhost:24325"
+#define URI_RESERVED "aeron:udp?endpoint=localhost:24325"
 #define STREAM_ID (117)
 
 class ErrorCallbackValidation
@@ -88,7 +89,37 @@ private:
     bool m_validated = false;
 };
 
-const char *CSV_NAME_CONFIG_WITH_UNRESOLVABLE_ADDRESS = "server0,endpoint,foo.example.com:24326,localhost:24326|";
+static const char *EXPECTED_RESOLVER_ERROR = "Unable to resolve host";
+
+static int resolveLocalhostOnly(
+    aeron_name_resolver_t *resolver,
+    const char *name,
+    const char *uri_param_name,
+    bool is_re_resolution,
+    struct sockaddr_storage *address)
+{
+    if (!is_re_resolution && 0 == strcmp("localhost", name))
+    {
+        auto *address_in = reinterpret_cast<sockaddr_in *>(address);
+        inet_pton(AF_INET, "127.0.0.1", &address_in->sin_addr);
+        return 0;
+    }
+    else
+    {
+        AERON_SET_ERR(-AERON_ERROR_CODE_UNKNOWN_HOST, "%s", EXPECTED_RESOLVER_ERROR);
+        return -1;
+    }
+}
+
+static int testResolverSupplier(
+    aeron_name_resolver_t *resolver,
+    const char *args,
+    aeron_driver_context_t *context)
+{
+    int i = aeron_default_name_resolver_supplier(resolver, args, context);
+    resolver->resolve_func = resolveLocalhostOnly;
+    return i;
+}
 
 class CErrorsTest : public CSystemTestBase, public testing::Test
 {
@@ -96,8 +127,10 @@ public:
     CErrorsTest() : CSystemTestBase(
         std::vector<std::pair<std::string, std::string>>{
             { "AERON_COUNTERS_BUFFER_LENGTH", "32768" },
-            { "AERON_NAME_RESOLVER_SUPPLIER", "csv_table" },
-            { "AERON_NAME_RESOLVER_INIT_ARGS", CSV_NAME_CONFIG_WITH_UNRESOLVABLE_ADDRESS }
+        },
+        [](aeron_driver_context_t *ctx)
+        {
+            aeron_driver_context_set_name_resolver_supplier(ctx, testResolverSupplier);
         })
     {
     }
@@ -123,7 +156,7 @@ protected:
         int64_t currentErrorCount;
         do
         {
-            proc_yield();
+            std::this_thread::yield();
             AERON_GET_VOLATILE(currentErrorCount, *m_errorCounter);
         }
         while (currentErrorCount <= m_initialErrorCount);
@@ -131,20 +164,15 @@ protected:
     
     void verifyDistinctErrorLogContains(const char *text, std::int64_t timeoutMs = 0)
     {
-        aeron_cnc_t *aeronCnc;
-        int result = aeron_cnc_init(&aeronCnc, aeron_context_get_dir(m_context), 100);
-        EXPECT_EQ(0, result);
-        if (result < 0)
-        {
-            aeron_cnc_close(aeronCnc);
-            return;
-        }
+        aeron_cnc_t *aeronCnc = NULL;
+        const char *aeron_dir = aeron_context_get_dir(m_context);
+        int result = aeron_cnc_init(&aeronCnc, aeron_dir, 1000);
+        ASSERT_EQ(0, result) << "CnC file not available: " << aeron_dir;
 
         ErrorCallbackValidation errorCallbackValidation
-            {
-                std::vector<std::string>{ text }
-            };
-
+        {
+            std::vector<std::string>{ text }
+        };
 
         std::int64_t deadlineMs = aeron_epoch_clock() + timeoutMs;
         do
@@ -198,7 +226,7 @@ TEST_F(CErrorsTest, shouldValidatePollType)
 
     while (1 != aeron_async_add_publication_poll(&pub, pub_async))
     {
-        proc_yield();
+        std::this_thread::yield();
     }
 
     aeron_publication_close(pub, NULL, NULL);
@@ -215,7 +243,7 @@ TEST_F(CErrorsTest, publicationErrorIncludesClientAndDriverErrorAndReportsInDist
     int result;
     while (0 == (result = aeron_async_add_publication_poll(&pub, pub_async)))
     {
-        proc_yield();
+        std::this_thread::yield();
     }
 
     ASSERT_EQ(-1, result);
@@ -243,7 +271,7 @@ TEST_F(CErrorsTest, exclusivePublicationErrorIncludesClientAndDriverErrorAndRepo
     int result;
     while (0 == (result = aeron_async_add_exclusive_publication_poll(&pub, pub_async)))
     {
-        proc_yield();
+        std::this_thread::yield();
     }
 
     ASSERT_EQ(-1, result);
@@ -272,7 +300,7 @@ TEST_F(CErrorsTest, subscriptionErrorIncludesClientAndDriverErrorAndReportsInDis
     int result;
     while (0 == (result = aeron_async_add_subscription_poll(&sub, sub_async)))
     {
-        proc_yield();
+        std::this_thread::yield();
     }
 
     ASSERT_EQ(-1, result) << aeron_errmsg();
@@ -304,7 +332,7 @@ TEST_F(CErrorsTest, counterErrorIncludesClientAndDriverErrorAndReportsInDistinct
             aeron_async_add_counter(&counter_async, aeron, 2002, (const uint8_t *)&key, sizeof(key), "label", 5));
         while (0 == (result = aeron_async_add_counter_poll(&counter, counter_async)))
         {
-            proc_yield();
+            std::this_thread::yield();
         }
 
         if (result < 0)
@@ -342,7 +370,7 @@ TEST_F(CErrorsTest, destinationErrorIncludesClientAndDriverErrorAndReportsInDist
     int result;
     while (0 == (result = aeron_async_add_exclusive_publication_poll(&pub, pub_async)))
     {
-        proc_yield();
+        std::this_thread::yield();
     }
 
     ASSERT_EQ(1, result) << aeron_errmsg();
@@ -352,7 +380,7 @@ TEST_F(CErrorsTest, destinationErrorIncludesClientAndDriverErrorAndReportsInDist
 
     while (0 == (result = aeron_exclusive_publication_async_destination_poll(dest_async)))
     {
-        proc_yield();
+        std::this_thread::yield();
     }
 
     ASSERT_EQ(-1, result);
@@ -382,7 +410,7 @@ TEST_F(CErrorsTest, shouldFailToResovleNameOnPublication)
     int result;
     while (0 == (result = aeron_async_add_publication_poll(&pub, pub_async)))
     {
-        proc_yield();
+        std::this_thread::yield();
     }
 
     ASSERT_EQ(-1, result);
@@ -399,45 +427,6 @@ TEST_F(CErrorsTest, shouldFailToResovleNameOnPublication)
     verifyDistinctErrorLogContains(expectedDriverMessage);
 }
 
-TEST_F(CErrorsTest, shouldFailToResovleNameOnDestination)
-{
-    aeron_t *aeron = connect();
-    aeron_async_add_exclusive_publication_t *pub_async;
-    aeron_async_destination_t *dest_async;
-    aeron_exclusive_publication_t *pub;
-
-    ASSERT_EQ(0, aeron_async_add_exclusive_publication(&pub_async, aeron, "aeron:udp?control-mode=manual", 1001));
-
-    int result;
-    while (0 == (result = aeron_async_add_exclusive_publication_poll(&pub, pub_async)))
-    {
-        proc_yield();
-    }
-
-    ASSERT_EQ(1, result) << aeron_errmsg();
-
-    ASSERT_EQ(0, aeron_exclusive_publication_async_add_destination(
-        &dest_async, aeron, pub, "aeron:udp?endpoint=foo.example.com:21345"));
-
-    while (0 == (result = aeron_exclusive_publication_async_destination_poll(dest_async)))
-    {
-        proc_yield();
-    }
-
-    ASSERT_EQ(-1, result);
-    std::string errorMessage = std::string(aeron_errmsg());
-    const char *expectedDriverMessage = "Unable to resolve host";
-
-    ASSERT_THAT(-AERON_ERROR_CODE_UNKNOWN_HOST, aeron_errcode());
-    ASSERT_THAT(
-        errorMessage, testing::HasSubstr("async_add_destination registration"));
-    ASSERT_THAT(
-        errorMessage, testing::HasSubstr(expectedDriverMessage));
-
-    waitForErrorCounterIncrease();
-    verifyDistinctErrorLogContains(expectedDriverMessage);
-}
-
 TEST_F(CErrorsTest, shouldRecordDistinctErrorCorrectlyOnReresolve)
 {
     aeron_t *aeron = connect();
@@ -445,17 +434,16 @@ TEST_F(CErrorsTest, shouldRecordDistinctErrorCorrectlyOnReresolve)
     aeron_async_add_publication_t *pub_async;
     aeron_publication_t *pub;
 
-    ASSERT_EQ(0, aeron_async_add_publication(&pub_async, aeron, "aeron:udp?endpoint=server0", 1001));
+    ASSERT_EQ(0, aeron_async_add_publication(&pub_async, aeron, "aeron:udp?endpoint=localhost:21345", 1001));
 
     int result;
     while (0 == (result = aeron_async_add_publication_poll(&pub, pub_async)))
     {
-        proc_yield();
+        std::this_thread::yield();
     }
 
     ASSERT_EQ(1, result);
-    const char *expectedDriverMessage = "Unable to resolve host";
 
     waitForErrorCounterIncrease();
-    verifyDistinctErrorLogContains(expectedDriverMessage, 10000);
+    verifyDistinctErrorLogContains(EXPECTED_RESOLVER_ERROR, 10000);
 }

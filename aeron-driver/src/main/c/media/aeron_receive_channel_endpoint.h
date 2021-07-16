@@ -47,8 +47,6 @@ typedef struct aeron_receive_channel_endpoint_stct
         aeron_driver_managed_resource_t managed_resource;
         aeron_udp_channel_t *udp_channel;
         aeron_receive_channel_endpoint_status_t status;
-        size_t socket_sndbuf;
-        size_t socket_rcvbuf;
     }
     conductor_fields;
 
@@ -88,9 +86,7 @@ int aeron_receive_channel_endpoint_create(
     aeron_receive_destination_t *straight_through_destination,
     aeron_atomic_counter_t *status_indicator,
     aeron_system_counters_t *system_counters,
-    aeron_driver_context_t *context,
-    size_t socket_rcvbuf,
-    size_t socket_sndbuf);
+    aeron_driver_context_t *context);
 
 int aeron_receive_channel_endpoint_delete(
     aeron_counters_manager_t *counters_manager, aeron_receive_channel_endpoint_t *endpoint);
@@ -135,14 +131,16 @@ void aeron_receive_channel_endpoint_dispatch(
     void *destination_clientd,
     uint8_t *buffer,
     size_t length,
-    struct sockaddr_storage *addr);
+    struct sockaddr_storage *addr,
+    struct timespec *packet_timestamp);
 
 int aeron_receive_channel_endpoint_on_data(
     aeron_receive_channel_endpoint_t *endpoint,
     aeron_receive_destination_t *destination,
     uint8_t *buffer,
     size_t length,
-    struct sockaddr_storage *addr);
+    struct sockaddr_storage *addr,
+    struct timespec *packet_timestamp);
 
 int aeron_receive_channel_endpoint_on_setup(
     aeron_receive_channel_endpoint_t *endpoint,

@@ -15,8 +15,10 @@
  */
 package io.aeron.cluster;
 
+import io.aeron.CommonContext;
 import io.aeron.ExclusivePublication;
 import io.aeron.Publication;
+import io.aeron.cluster.client.ClusterException;
 import io.aeron.cluster.codecs.*;
 import io.aeron.exceptions.AeronException;
 import io.aeron.logbuffer.BufferClaim;
@@ -51,8 +53,14 @@ final class ConsensusPublisher
         final ExclusivePublication publication,
         final long logLeadershipTermId,
         final long logPosition,
+        final long leadershipTermId,
         final int followerMemberId)
     {
+        if (null == publication)
+        {
+            return;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + CanvassPositionEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -65,6 +73,7 @@ final class ConsensusPublisher
                     .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
                     .logLeadershipTermId(logLeadershipTermId)
                     .logPosition(logPosition)
+                    .leadershipTermId(leadershipTermId)
                     .followerMemberId(followerMemberId);
 
                 bufferClaim.commit();
@@ -84,6 +93,11 @@ final class ConsensusPublisher
         final long candidateTermId,
         final int candidateMemberId)
     {
+        if (null == publication)
+        {
+            return false;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + RequestVoteEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -120,6 +134,11 @@ final class ConsensusPublisher
         final int followerMemberId,
         final boolean vote)
     {
+        if (null == publication)
+        {
+            return;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + VoteEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -150,7 +169,9 @@ final class ConsensusPublisher
     void newLeadershipTerm(
         final ExclusivePublication publication,
         final long logLeadershipTermId,
-        final long logTruncatePosition,
+        final long nextLeadershipTermId,
+        final long nextTermBaseLogPosition,
+        final long nextLogPosition,
         final long leadershipTermId,
         final long termBaseLogPosition,
         final long logPosition,
@@ -160,6 +181,16 @@ final class ConsensusPublisher
         final int logSessionId,
         final boolean isStartup)
     {
+        if (null == publication)
+        {
+            return;
+        }
+
+        if (CommonContext.NULL_SESSION_ID == logSessionId)
+        {
+            throw new ClusterException("logSessionId was null, should always have a value");
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + NewLeadershipTermEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -171,7 +202,9 @@ final class ConsensusPublisher
                 newLeadershipTermEncoder
                     .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
                     .logLeadershipTermId(logLeadershipTermId)
-                    .logTruncatePosition(logTruncatePosition)
+                    .nextLeadershipTermId(nextLeadershipTermId)
+                    .nextTermBaseLogPosition(nextTermBaseLogPosition)
+                    .nextLogPosition(nextLogPosition)
                     .leadershipTermId(leadershipTermId)
                     .termBaseLogPosition(termBaseLogPosition)
                     .logPosition(logPosition)
@@ -197,6 +230,11 @@ final class ConsensusPublisher
         final long logPosition,
         final int followerMemberId)
     {
+        if (null == publication)
+        {
+            return false;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + AppendPositionEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -229,6 +267,11 @@ final class ConsensusPublisher
         final long logPosition,
         final int leaderMemberId)
     {
+        if (null == publication)
+        {
+            return;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + CommitPositionEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -260,6 +303,11 @@ final class ConsensusPublisher
         final int followerMemberId,
         final String catchupEndpoint)
     {
+        if (null == publication)
+        {
+            return false;
+        }
+
         final int length =
             MessageHeaderEncoder.ENCODED_LENGTH +
             CatchupPositionEncoder.BLOCK_LENGTH +
@@ -293,6 +341,11 @@ final class ConsensusPublisher
 
     boolean stopCatchup(final ExclusivePublication publication, final long leadershipTermId, final int followerMemberId)
     {
+        if (null == publication)
+        {
+            return false;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + StopCatchupEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -321,6 +374,11 @@ final class ConsensusPublisher
     boolean addPassiveMember(
         final ExclusivePublication publication, final long correlationId, final String memberEndpoints)
     {
+        if (null == publication)
+        {
+            return true;
+        }
+
         addPassiveMemberEncoder
             .wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
             .correlationId(correlationId)
@@ -351,6 +409,11 @@ final class ConsensusPublisher
         final String activeMembers,
         final String passiveMembers)
     {
+        if (null == publication)
+        {
+            return true;
+        }
+
         clusterMembersChangeEncoder
             .wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
             .correlationId(correlationId)
@@ -379,6 +442,11 @@ final class ConsensusPublisher
     boolean snapshotRecordingQuery(
         final ExclusivePublication publication, final long correlationId, final int requestMemberId)
     {
+        if (null == publication)
+        {
+            return false;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + SnapshotRecordingQueryEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -410,6 +478,11 @@ final class ConsensusPublisher
         final RecordingLog.RecoveryPlan recoveryPlan,
         final String memberEndpoints)
     {
+        if (null == publication)
+        {
+            return;
+        }
+
         snapshotRecordingsEncoder.wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
             .correlationId(correlationId);
 
@@ -448,6 +521,11 @@ final class ConsensusPublisher
 
     boolean joinCluster(final ExclusivePublication publication, final long leadershipTermId, final int memberId)
     {
+        if (null == publication)
+        {
+            return false;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + JoinClusterEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -476,6 +554,11 @@ final class ConsensusPublisher
     boolean terminationPosition(
         final ExclusivePublication publication, final long leadershipTermId, final long logPosition)
     {
+        if (null == publication)
+        {
+            return false;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + TerminationPositionEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -505,6 +588,11 @@ final class ConsensusPublisher
     boolean terminationAck(
         final ExclusivePublication publication, final long leadershipTermId, final long logPosition, final int memberId)
     {
+        if (null == publication)
+        {
+            return false;
+        }
+
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + TerminationAckEncoder.BLOCK_LENGTH;
 
         int attempts = SEND_ATTEMPTS;
@@ -540,6 +628,11 @@ final class ConsensusPublisher
         final String responseChannel,
         final byte[] encodedCredentials)
     {
+        if (null == publication)
+        {
+            return false;
+        }
+
         backupQueryEncoder
             .wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
             .correlationId(correlationId)

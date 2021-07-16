@@ -17,10 +17,7 @@ package io.aeron.cluster.client;
 
 import io.aeron.*;
 import io.aeron.cluster.codecs.*;
-import io.aeron.exceptions.AeronException;
-import io.aeron.exceptions.ConcurrentConcludeException;
-import io.aeron.exceptions.ConfigurationException;
-import io.aeron.exceptions.TimeoutException;
+import io.aeron.exceptions.*;
 import io.aeron.logbuffer.BufferClaim;
 import io.aeron.logbuffer.ControlledFragmentHandler;
 import io.aeron.logbuffer.Header;
@@ -1468,6 +1465,7 @@ public final class AeronCluster implements AutoCloseable
         private final MessageHeaderEncoder messageHeaderEncoder = new MessageHeaderEncoder();
         private Int2ObjectHashMap<MemberIngress> memberByIdMap;
         private Publication ingressPublication;
+        private RegistrationException registrationException;
 
         AsyncConnect(final Context ctx, final Subscription egressSubscription, final long deadlineNs)
         {
@@ -1558,9 +1556,18 @@ public final class AeronCluster implements AutoCloseable
         {
             if (deadlineNs - nanoClock.nanoTime() < 0)
             {
-                throw new TimeoutException(
-                    "connect timeout, step=" + step + " egress.isConnected=" + egressSubscription.isConnected() +
+                final TimeoutException ex = new TimeoutException(
+                    "cluster connect timeout: step=" + step +
+                    " ingressPublication=" + ingressPublication +
+                    " egress.isConnected=" + egressSubscription.isConnected() +
                     " responseChannel=" + egressSubscription.tryResolveChannelEndpointPort());
+
+                if (null != registrationException)
+                {
+                    ex.addSuppressed(registrationException);
+                }
+
+                throw ex;
             }
 
             if (Thread.currentThread().isInterrupted())
@@ -1577,11 +1584,26 @@ public final class AeronCluster implements AutoCloseable
             }
             else
             {
+                int publicationCount = 0;
                 final ChannelUri channelUri = ChannelUri.parse(ctx.ingressChannel());
+
                 for (final MemberIngress member : memberByIdMap.values())
                 {
-                    channelUri.put(CommonContext.ENDPOINT_PARAM_NAME, member.endpoint);
-                    member.publication = addIngressPublication(ctx, channelUri.toString(), ctx.ingressStreamId());
+                    try
+                    {
+                        channelUri.put(CommonContext.ENDPOINT_PARAM_NAME, member.endpoint);
+                        member.publication = addIngressPublication(ctx, channelUri.toString(), ctx.ingressStreamId());
+                        ++publicationCount;
+                    }
+                    catch (final RegistrationException ex)
+                    {
+                        registrationException = ex;
+                    }
+                }
+
+                if (0 == publicationCount && null != registrationException)
+                {
+                    throw registrationException;
                 }
             }
 
@@ -1597,7 +1619,7 @@ public final class AeronCluster implements AutoCloseable
                 {
                     for (final MemberIngress member : memberByIdMap.values())
                     {
-                        if (member.publication.isConnected())
+                        if (null != member.publication && member.publication.isConnected())
                         {
                             ingressPublication = member.publication;
                             prepareConnectRequest(responseChannel);
@@ -1617,8 +1639,7 @@ public final class AeronCluster implements AutoCloseable
             correlationId = ctx.aeron().nextCorrelationId();
             final byte[] encodedCredentials = ctx.credentialsSupplier().encodedCredentials();
 
-            final SessionConnectRequestEncoder encoder = new SessionConnectRequestEncoder();
-            encoder
+            final SessionConnectRequestEncoder encoder = new SessionConnectRequestEncoder()
                 .wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
                 .correlationId(correlationId)
                 .responseStreamId(ctx.egressStreamId())
@@ -1627,7 +1648,6 @@ public final class AeronCluster implements AutoCloseable
                 .putEncodedCredentials(encodedCredentials, 0, encodedCredentials.length);
 
             messageLength = MessageHeaderEncoder.ENCODED_LENGTH + encoder.encodedLength();
-
             step(2);
         }
 
@@ -1685,8 +1705,7 @@ public final class AeronCluster implements AutoCloseable
         {
             correlationId = ctx.aeron().nextCorrelationId();
 
-            final ChallengeResponseEncoder encoder = new ChallengeResponseEncoder();
-            encoder
+            final ChallengeResponseEncoder encoder = new ChallengeResponseEncoder()
                 .wrapAndApplyHeader(buffer, 0, messageHeaderEncoder)
                 .correlationId(correlationId)
                 .clusterSessionId(clusterSessionId)
@@ -1705,19 +1724,17 @@ public final class AeronCluster implements AutoCloseable
             {
                 ingressPublication = leader.publication;
                 leader.publication = null;
-                CloseHelper.closeAll(memberByIdMap.values());
-                memberByIdMap = parseIngressEndpoints(egressPoller.detail());
             }
-            else
-            {
-                CloseHelper.closeAll(memberByIdMap.values());
-                memberByIdMap = parseIngressEndpoints(egressPoller.detail());
 
+            CloseHelper.closeAll(memberByIdMap.values());
+            memberByIdMap = parseIngressEndpoints(egressPoller.detail());
+
+            if (null == ingressPublication)
+            {
                 final MemberIngress member = memberByIdMap.get(leaderMemberId);
                 final ChannelUri channelUri = ChannelUri.parse(ctx.ingressChannel());
                 channelUri.put(CommonContext.ENDPOINT_PARAM_NAME, member.endpoint);
-                member.publication = addIngressPublication(ctx, channelUri.toString(), ctx.ingressStreamId());
-                ingressPublication = member.publication;
+                ingressPublication = addIngressPublication(ctx, channelUri.toString(), ctx.ingressStreamId());
             }
 
             step(1);

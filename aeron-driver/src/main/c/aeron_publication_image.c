@@ -178,7 +178,7 @@ int aeron_publication_image_create(
     _image->conductor_fields.managed_resource.decref = NULL;
     _image->conductor_fields.is_reliable = is_reliable;
     _image->conductor_fields.state = AERON_PUBLICATION_IMAGE_STATE_ACTIVE;
-    _image->conductor_fields.liveness_timeout_ns = context->image_liveness_timeout_ns;
+    _image->conductor_fields.liveness_timeout_ns = (int64_t)context->image_liveness_timeout_ns;
     _image->session_id = session_id;
     _image->stream_id = stream_id;
     _image->rcv_hwm_position.counter_id = rcv_hwm_position->counter_id;
@@ -193,7 +193,7 @@ int aeron_publication_image_create(
     _image->last_sm_change_number = -1;
     _image->last_loss_change_number = -1;
     _image->is_end_of_stream = false;
-    _image->sm_timeout_ns = context->status_message_timeout_ns;
+    _image->sm_timeout_ns = (int64_t)context->status_message_timeout_ns;
 
     memcpy(&_image->source_address, source_address, sizeof(_image->source_address));
 
@@ -225,8 +225,10 @@ int aeron_publication_image_create(
     _image->next_sm_position = initial_position;
     _image->next_sm_receiver_window_length = _image->congestion_control->initial_window_length(
         _image->congestion_control->state);
+    _image->max_receiver_window_length = _image->congestion_control->max_window_length(
+        _image->congestion_control->state);
     _image->last_sm_position = initial_position;
-    _image->last_sm_position_window_limit = initial_position + _image->next_sm_receiver_window_length;
+    _image->last_overrun_threshold = initial_position + _image->next_sm_receiver_window_length;
     _image->time_of_last_packet_ns = now_ns;
     _image->time_of_last_sm_ns = 0;
     _image->conductor_fields.clean_position = initial_position;
@@ -287,7 +289,7 @@ void aeron_publication_image_clean_buffer_to(aeron_publication_image_t *image, i
         uint64_t *ptr = (uint64_t *)(image->mapped_raw_log.term_buffers[dirty_index].addr + term_offset);
         AERON_PUT_ORDERED(*ptr, (uint64_t)0);
 
-        image->conductor_fields.clean_position = clean_position + length;
+        image->conductor_fields.clean_position = clean_position + (int64_t)length;
     }
 }
 
@@ -519,7 +521,7 @@ int aeron_publication_image_insert_packet(
             AERON_PUT_ORDERED(image->time_of_last_packet_ns, aeron_clock_cached_nano_time(image->cached_clock));
             aeron_counter_propose_max_ordered(image->rcv_hwm_position.value_addr, proposed_position);
         }
-        else if (proposed_position >= (image->last_sm_position - image->next_sm_receiver_window_length))
+        else if (proposed_position >= (image->last_sm_position - image->max_receiver_window_length))
         {
             aeron_publication_image_track_connection(image, destination, addr, now_ns);
         }
@@ -589,9 +591,9 @@ int aeron_publication_image_send_pending_status_message(aeron_publication_image_
                     }
                 }
 
-                image->last_sm_change_number = change_number;
                 image->last_sm_position = sm_position;
-                image->last_sm_position_window_limit = sm_position + receiver_window_length;
+                image->last_overrun_threshold = sm_position + image->max_receiver_window_length;
+                image->last_sm_change_number = change_number;
                 image->time_of_last_sm_ns = now_ns;
 
                 aeron_update_active_transport_count(image, now_ns);
@@ -717,7 +719,7 @@ int aeron_publication_image_initiate_rttm(aeron_publication_image_t *image, int6
 int aeron_publication_image_add_destination(aeron_publication_image_t *image, aeron_receive_destination_t *destination)
 {
     int capacity_result = 0;
-    AERON_ARRAY_ENSURE_CAPACITY(capacity_result, image->connections, aeron_publication_image_connection_t);
+    AERON_ARRAY_ENSURE_CAPACITY(capacity_result, image->connections, aeron_publication_image_connection_t)
 
     if (capacity_result < 0)
     {
@@ -787,8 +789,8 @@ void aeron_publication_image_check_untethered_subscriptions(
         }
         else
         {
-            int64_t window_limit_timeout_ns = conductor->context->untethered_window_limit_timeout_ns;
-            int64_t resting_timeout_ns = conductor->context->untethered_resting_timeout_ns;
+            int64_t window_limit_timeout_ns = (int64_t)conductor->context->untethered_window_limit_timeout_ns;
+            int64_t resting_timeout_ns = (int64_t)conductor->context->untethered_resting_timeout_ns;
 
             switch (tetherable_position->state)
             {

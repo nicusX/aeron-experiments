@@ -88,7 +88,7 @@ int32_t aeron_config_parse_int32(const char *name, const char *str, int32_t def,
         }
 
         result = value > max ? max : (int32_t)value;
-        result = value < min ? min : (int32_t)result;
+        result = value < min ? min : result;
     }
 
     return result;
@@ -99,9 +99,9 @@ uint32_t aeron_config_parse_uint32(const char *name, const char *str, int32_t de
     return (uint32_t)aeron_config_parse_int32(
         name,
         str,
-        (uint32_t)(def < 0 ? 0 : def),
-        (uint32_t)(min < 0 ? 0 : min),
-        (uint32_t)(max < 0 ? 0 : max));
+        (def < 0 ? 0 : def),
+        (min < 0 ? 0 : min),
+        (max < 0 ? 0 : max));
 }
 
 int64_t aeron_config_parse_int64(const char *name, const char *str, int64_t def, int64_t min, int64_t max)
@@ -120,8 +120,8 @@ int64_t aeron_config_parse_int64(const char *name, const char *str, int64_t def,
             value = def;
         }
 
-        result = value > max ? max : (int64_t)value;
-        result = value < min ? min : (int64_t)result;
+        result = value > max ? max : value;
+        result = value < min ? min : result;
     }
 
     return result;
@@ -958,6 +958,10 @@ int aeron_driver_context_init(aeron_driver_context_t **context)
     _context->name_resolution_on_neighbor_added_func = aeron_driver_conductor_name_resolver_on_neighbor_change_null;
     _context->name_resolution_on_neighbor_removed_func = aeron_driver_conductor_name_resolver_on_neighbor_change_null;
 
+    _context->flow_control_on_receiver_added_func = NULL;
+    _context->flow_control_on_receiver_removed_func = NULL;
+    _context->on_name_resolve_func = NULL;
+
     if ((_context->termination_validator_func = aeron_driver_termination_validator_load(
         AERON_CONFIG_GETENV_OR_DEFAULT(AERON_DRIVER_TERMINATION_VALIDATOR_ENV_VAR, "deny"))) == NULL)
     {
@@ -1027,6 +1031,12 @@ int aeron_driver_context_init(aeron_driver_context_t **context)
         return -1;
     }
 
+    if (aeron_driver_context_bindings_clientd_create_entries(_context) < 0)
+    {
+        AERON_APPEND_ERR("%s", "Failed to allocate bindings_clientd entries");
+        return -1;
+    }
+
     *context = _context;
     return 0;
 }
@@ -1060,19 +1070,39 @@ int aeron_driver_context_bindings_clientd_create_entries(aeron_driver_context_t 
         interceptor_bindings = interceptor_bindings->meta_info.next_interceptor_bindings;
     }
 
-    if (aeron_alloc((void **)&_entries, sizeof(aeron_driver_context_bindings_clientd_entry_t) * num_entries) < 0)
+    if (0 == context->num_bindings_clientd_entries)
     {
-        AERON_APPEND_ERR("%s", "could not allocate context_bindings_clientd_entries");
-        return -1;
+        if (aeron_alloc((void **)&_entries, sizeof(aeron_driver_context_bindings_clientd_entry_t) * num_entries) < 0)
+        {
+            AERON_APPEND_ERR("%s", "could not allocate context_bindings_clientd_entries");
+            return -1;
+        }
+
+        for (size_t i = 0; i < num_entries; i++)
+        {
+            _entries[i].name = NULL;
+            _entries[i].clientd = NULL;
+        }
+
+        context->bindings_clientd_entries = _entries;
+    }
+    else if (num_entries > context->num_bindings_clientd_entries)
+    {
+        if (aeron_reallocf(
+            (void **)&context->bindings_clientd_entries,
+            sizeof(aeron_driver_context_bindings_clientd_entry_t) * num_entries) < 0)
+        {
+            AERON_APPEND_ERR("%s", "could not reallocate context_bindings_clientd_entries");
+            return -1;
+        }
+
+        for (size_t i = context->num_bindings_clientd_entries; i < num_entries; i++)
+        {
+            context->bindings_clientd_entries[i].name = NULL;
+            context->bindings_clientd_entries[i].clientd = NULL;
+        }
     }
 
-    for (size_t i = 0; i < num_entries; i++)
-    {
-        _entries->name = NULL;
-        _entries->clientd = NULL;
-    }
-
-    context->bindings_clientd_entries = _entries;
     context->num_bindings_clientd_entries = num_entries;
 
     return 0;
@@ -1322,6 +1352,8 @@ size_t aeron_cnc_length(aeron_driver_context_t *context)
 extern void aeron_cnc_version_signal_cnc_ready(aeron_cnc_metadata_t *metadata, int32_t cnc_version);
 
 extern size_t aeron_producer_window_length(size_t producer_window_length, size_t term_length);
+
+extern size_t aeron_receiver_window_length(size_t initial_receiver_window_length, size_t term_length);
 
 #define AERON_DRIVER_CONTEXT_SET_CHECK_ARG_AND_RETURN(r, a) \
 do \
@@ -2488,4 +2520,32 @@ int64_t aeron_driver_context_get_conductor_cycle_threshold_ns(aeron_driver_conte
 {
     return NULL != context ?
         context->conductor_cycle_threshold_ns : AERON_DRIVER_CONDUCTOR_CYCLE_THRESHOLD_NS_DEFAULT;
+}
+
+int aeron_driver_context_bindings_clientd_find_first_free_index(aeron_driver_context_t *context)
+{
+    for (size_t i = 0; i < context->num_bindings_clientd_entries; i++)
+    {
+        if (NULL == context->bindings_clientd_entries[i].clientd)
+        {
+            return (int)i;
+        }
+    }
+
+    return -1;
+}
+
+int aeron_driver_context_bindings_clientd_find(aeron_driver_context_t *context, const char *name)
+{
+    for (size_t i = 0; i < context->num_bindings_clientd_entries; i++)
+    {
+        aeron_driver_context_bindings_clientd_entry_t *entry = &context->bindings_clientd_entries[i];
+
+        if (NULL != entry->name && 0 == strncmp(entry->name, name, strlen(name)))
+        {
+            return (int)i;
+        }
+    }
+
+    return -1;
 }

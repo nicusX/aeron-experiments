@@ -20,6 +20,8 @@ import io.aeron.driver.ThreadingMode;
 import io.aeron.exceptions.RegistrationException;
 import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.LogBufferDescriptor;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
 import io.aeron.test.SlowTest;
 import io.aeron.test.Tests;
 import io.aeron.test.driver.MediaDriverTestWatcher;
@@ -30,7 +32,7 @@ import org.agrona.ErrorHandler;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.concurrent.status.CountersReader;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -41,7 +43,8 @@ import static io.aeron.CommonContext.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
-public class SessionSpecificPublicationTest
+@ExtendWith(InterruptingTestCallback.class)
+class SessionSpecificPublicationTest
 {
     private static final String ENDPOINT = "localhost:24325";
     private static final int SESSION_ID_1 = 1077;
@@ -52,7 +55,7 @@ public class SessionSpecificPublicationTest
     private static final int TERM_LENGTH_1 = 64 * 1024;
     private static final int TERM_LENGTH_2 = 128 * 1024;
 
-    private static Stream<ChannelUriStringBuilder> data()
+    static Stream<ChannelUriStringBuilder> data()
     {
         return Stream.of(
             new ChannelUriStringBuilder().media(UDP_MEDIA).endpoint(ENDPOINT),
@@ -60,7 +63,7 @@ public class SessionSpecificPublicationTest
     }
 
     @RegisterExtension
-    public final MediaDriverTestWatcher testWatcher = new MediaDriverTestWatcher();
+    final MediaDriverTestWatcher testWatcher = new MediaDriverTestWatcher();
 
     private final ErrorHandler mockErrorHandler = mock(ErrorHandler.class);
     private final MediaDriver.Context mediaDriverContext = new MediaDriver.Context()
@@ -74,7 +77,7 @@ public class SessionSpecificPublicationTest
     private final Aeron aeron = Aeron.connect();
 
     @AfterEach
-    public void after()
+    void after()
     {
         CloseHelper.closeAll(aeron, mediaDriver);
         mediaDriver.context().deleteDirectory();
@@ -82,7 +85,7 @@ public class SessionSpecificPublicationTest
 
     @ParameterizedTest
     @MethodSource("data")
-    public void shouldNotCreateExclusivePublicationWhenSessionIdCollidesWithExistingPublication(
+    void shouldNotCreateExclusivePublicationWhenSessionIdCollidesWithExistingPublication(
         final ChannelUriStringBuilder channelBuilder)
     {
         try (Subscription ignored = aeron.addSubscription(channelBuilder.build(), STREAM_ID);
@@ -91,7 +94,6 @@ public class SessionSpecificPublicationTest
             Tests.awaitConnected(publication);
 
             final int existingSessionId = publication.sessionId();
-
             final String invalidChannel = channelBuilder.sessionId(existingSessionId).build();
 
             assertThrows(RegistrationException.class, () ->
@@ -106,7 +108,7 @@ public class SessionSpecificPublicationTest
 
     @ParameterizedTest
     @MethodSource("data")
-    public void shouldNotCreatePublicationsSharingSessionIdWithDifferentMtu(
+    void shouldNotCreatePublicationsSharingSessionIdWithDifferentMtu(
         final ChannelUriStringBuilder channelBuilder)
     {
         channelBuilder.sessionId(SESSION_ID_1);
@@ -123,7 +125,7 @@ public class SessionSpecificPublicationTest
 
     @ParameterizedTest
     @MethodSource("data")
-    public void shouldNotCreatePublicationsSharingSessionIdWithDifferentTermLength(
+    void shouldNotCreatePublicationsSharingSessionIdWithDifferentTermLength(
         final ChannelUriStringBuilder channelBuilder)
     {
         channelBuilder.sessionId(SESSION_ID_1);
@@ -143,7 +145,7 @@ public class SessionSpecificPublicationTest
 
     @ParameterizedTest
     @MethodSource("data")
-    public void shouldNotCreateNonExclusivePublicationsWithDifferentSessionIdsForTheSameEndpoint(
+    void shouldNotCreateNonExclusivePublicationsWithDifferentSessionIdsForTheSameEndpoint(
         final ChannelUriStringBuilder channelBuilder)
     {
         channelBuilder.endpoint(ENDPOINT);
@@ -163,7 +165,7 @@ public class SessionSpecificPublicationTest
 
     @ParameterizedTest
     @MethodSource("data")
-    @Timeout(20)
+    @InterruptAfter(20)
     @SlowTest
     void shouldNotAddPublicationWithSameSessionUntilLingerCompletes(final ChannelUriStringBuilder builder)
     {
@@ -179,7 +181,7 @@ public class SessionSpecificPublicationTest
 
         while (publication1.offer(msg) < 0)
         {
-            Tests.yieldingWait("Failed to offer message");
+            Tests.yieldingIdle("Failed to offer message");
         }
 
         publication1.close();
@@ -195,13 +197,13 @@ public class SessionSpecificPublicationTest
         final FragmentHandler fragmentHandler = (buffer, offset, length, header) -> {};
         while (subscription.poll(fragmentHandler, 10) <= 0)
         {
-            Tests.yieldingWait("Failed to drain message");
+            Tests.yieldingIdle("Failed to drain message");
         }
         subscription.close();
 
         while (CountersReader.RECORD_ALLOCATED == aeron.countersReader().getCounterState(positionLimitId))
         {
-            Tests.yieldingWait("Publication never cleaned up");
+            Tests.yieldingIdle("Publication never cleaned up");
         }
 
         aeron.addPublication(channel, STREAM_ID);

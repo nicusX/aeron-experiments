@@ -17,6 +17,8 @@ package io.aeron.cluster;
 
 import io.aeron.*;
 import io.aeron.cluster.client.ClusterException;
+import io.aeron.exceptions.AeronException;
+import io.aeron.exceptions.RegistrationException;
 import org.agrona.CloseHelper;
 import org.agrona.ErrorHandler;
 import org.agrona.collections.ArrayUtil;
@@ -67,7 +69,7 @@ public final class ClusterMember
      * @param logEndpoint       address and port endpoint to which the log is replicated.
      * @param catchupEndpoint   address and port endpoint to which a stream is replayed to catchup to the leader.
      * @param archiveEndpoint   address and port endpoint to which the archive control channel can be reached.
-     * @param endpoints   comma separated list of endpoints.
+     * @param endpoints         comma separated list of endpoints.
      */
     public ClusterMember(
         final int id,
@@ -680,27 +682,31 @@ public final class ClusterMember
     }
 
     /**
-     * Add the publications for sending status messages to the other members of the cluster.
+     * Add the publications for sending consensus messages to the other members of the cluster.
      *
-     * @param members    of the cluster.
-     * @param exclude    this member when adding publications.
-     * @param channelUri for the publication.
-     * @param streamId   for the publication.
-     * @param aeron      to add the publications to.
+     * @param members     of the cluster.
+     * @param exclude      this member when adding publications.
+     * @param channel      for the publications.
+     * @param streamId     for the publications.
+     * @param aeron        to add the publications to.
+     * @param errorHandler to log registration exceptions to.
      */
     public static void addConsensusPublications(
         final ClusterMember[] members,
         final ClusterMember exclude,
-        final ChannelUri channelUri,
+        final String channel,
         final int streamId,
-        final Aeron aeron)
+        final Aeron aeron,
+        final ErrorHandler errorHandler)
     {
+        final ChannelUri channelUri = ChannelUri.parse(channel);
+
         for (final ClusterMember member : members)
         {
             if (member.id != exclude.id)
             {
                 channelUri.put(ENDPOINT_PARAM_NAME, member.consensusEndpoint());
-                member.publication = aeron.addExclusivePublication(channelUri.toString(), streamId);
+                trySetMemberPublication(member, channelUri, streamId, aeron, errorHandler);
             }
         }
     }
@@ -708,16 +714,22 @@ public final class ClusterMember
     /**
      * Add an exclusive {@link Publication} for communicating to a member on the consensus channel.
      *
-     * @param member     to which the publication is addressed.
-     * @param channelUri for the target member.
-     * @param streamId   for the target member.
-     * @param aeron      from which the publication will be created.
+     * @param member       to which the publication is addressed.
+     * @param channel      for the target member.
+     * @param streamId     for the target member.
+     * @param aeron        from which the publication will be created.
+     * @param errorHandler to log registration exceptions to.
      */
     public static void addConsensusPublication(
-        final ClusterMember member, final ChannelUri channelUri, final int streamId, final Aeron aeron)
+        final ClusterMember member,
+        final String channel,
+        final int streamId,
+        final Aeron aeron,
+        final ErrorHandler errorHandler)
     {
+        final ChannelUri channelUri = ChannelUri.parse(channel);
         channelUri.put(ENDPOINT_PARAM_NAME, member.consensusEndpoint());
-        member.publication = aeron.addExclusivePublication(channelUri.toString(), streamId);
+        trySetMemberPublication(member, channelUri, streamId, aeron, errorHandler);
     }
 
     /**
@@ -1289,6 +1301,25 @@ public final class ClusterMember
         }
 
         return builder.toString();
+    }
+
+    private static void trySetMemberPublication(
+        final ClusterMember member,
+        final ChannelUri channelUri,
+        final int streamId,
+        final Aeron aeron,
+        final ErrorHandler errorHandler)
+    {
+        try
+        {
+            member.publication = aeron.addExclusivePublication(channelUri.toString(), streamId);
+        }
+        catch (final RegistrationException ex)
+        {
+            errorHandler.onError(new ClusterException(
+                "failed to add consensus publication for member: " + member.id + " - " + ex.getMessage(),
+                AeronException.Category.WARN));
+        }
     }
 
     /**

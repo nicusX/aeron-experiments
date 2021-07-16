@@ -24,6 +24,7 @@
 #include "util/aeron_bitutil.h"
 #include "util/aeron_strutil.h"
 #include "util/aeron_error.h"
+#include "collections/aeron_hashing.h"
 #include "collections/aeron_map.h"
 #include "aeron_alloc.h"
 
@@ -46,17 +47,24 @@ typedef struct aeron_str_to_ptr_hash_map_stct
 }
 aeron_str_to_ptr_hash_map_t;
 
-inline size_t aeron_str_to_ptr_hash_map_hash_key(uint64_t key, size_t mask)
+inline size_t aeron_str_to_ptr_hash_map_hash_key(uint64_t key_hash_code, size_t mask)
 {
-    return (size_t)((key * 31) & mask);
+    uint64_t hash = key_hash_code;
+
+    if (mask <= UINT32_MAX)
+    {
+        hash = (uint32_t)hash ^ (uint32_t)(hash >> 32u);
+    }
+
+    return (size_t)(hash & mask);
 }
 
 inline bool aeron_str_to_ptr_hash_map_compare(
     aeron_str_to_ptr_hash_map_key_t *key, const char *key_str, size_t key_str_len, uint64_t key_hash_code)
 {
-    return (key->hash_code == key_hash_code &&
+    return key->hash_code == key_hash_code &&
         key->str_length == key_str_len &&
-        strncmp(key->str, key_str, key_str_len) == 0);
+        strncmp(key->str, key_str, key_str_len) == 0;
 }
 
 inline int aeron_str_to_ptr_hash_map_init(aeron_str_to_ptr_hash_map_t *map, size_t initial_capacity, float load_factor)

@@ -22,19 +22,23 @@ import io.aeron.cluster.service.ClusteredServiceContainer;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.logbuffer.Header;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
 import io.aeron.test.Tests;
 import io.aeron.test.cluster.TestCluster;
 import io.aeron.test.cluster.TestNode;
+import io.aeron.test.driver.RedirectingNameResolver;
 import org.agrona.CloseHelper;
 import org.agrona.DirectBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class MultiClusteredServicesTest
 {
     final AtomicLong serviceAMessageCount = new AtomicLong(0);
@@ -69,7 +73,7 @@ public class MultiClusteredServicesTest
     }
 
     @Test
-    @Timeout(20)
+    @InterruptAfter(20)
     public void shouldSupportMultipleServicesPerNode()
     {
         final List<TestCluster.NodeContext> nodeContexts = new ArrayList<>();
@@ -103,11 +107,12 @@ public class MultiClusteredServicesTest
         final MediaDriver clientMediaDriver = MediaDriver.launch(new MediaDriver.Context()
             .threadingMode(ThreadingMode.SHARED)
             .dirDeleteOnStart(true)
-            .aeronDirectoryName(aeronDirName));
+            .aeronDirectoryName(aeronDirName)
+            .nameResolver(new RedirectingNameResolver(TestCluster.DEFAULT_NODE_MAPPINGS)));
 
         final AeronCluster client = AeronCluster.connect(new AeronCluster.Context()
             .aeronDirectoryName(aeronDirName)
-            .ingressChannel("aeron:udp")
+            .ingressChannel(CommonContext.UDP_CHANNEL)
             .ingressEndpoints(TestCluster.ingressEndpoints(0, 3)));
 
         try

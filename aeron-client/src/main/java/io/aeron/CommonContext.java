@@ -17,6 +17,7 @@ package io.aeron;
 
 import io.aeron.exceptions.ConcurrentConcludeException;
 import io.aeron.exceptions.DriverTimeoutException;
+import org.agrona.BufferUtil;
 import org.agrona.DirectBuffer;
 import org.agrona.IoUtil;
 import org.agrona.SystemUtil;
@@ -143,9 +144,14 @@ public class CommonContext implements Cloneable
     public static final String UDP_MEDIA = "udp";
 
     /**
-     * URI used for IPC {@link Publication}s and {@link Subscription}s
+     * URI base used for IPC channels for {@link Publication}s and {@link Subscription}s
      */
     public static final String IPC_CHANNEL = "aeron:ipc";
+
+    /**
+     * URI base used for UDP channels for {@link Publication}s and {@link Subscription}s
+     */
+    public static final String UDP_CHANNEL = "aeron:udp";
 
     /**
      * URI used for Spy {@link Subscription}s whereby an outgoing unicast or multicast publication can be spied on
@@ -320,6 +326,13 @@ public class CommonContext implements Cloneable
     public static final String RECEIVER_WINDOW_LENGTH_PARAM_NAME = "rcv-wnd";
 
     /**
+     * Parameter name of the offset for the packet timestamp to be inserted into the incoming message
+     * on a subscription.  The special value of 'reserved' can be used to insert into the reserved value
+     * field.
+     */
+    public static final String PACKET_TIMESTAMP_OFFSET = "pkt-ts-offset";
+
+    /**
      * Using an integer because there is no support for boolean. 1 is concluded, 0 is not concluded.
      */
     private static final AtomicIntegerFieldUpdater<CommonContext> IS_CONCLUDED_UPDATER = newUpdater(
@@ -412,6 +425,16 @@ public class CommonContext implements Cloneable
         cncFile = new File(aeronDirectory, CncFileDescriptor.CNC_FILE);
 
         return this;
+    }
+
+    /**
+     * Has the context had the {@link #conclude()} method called.
+     *
+     * @return true of the {@link #conclude()} method has been called.
+     */
+    public boolean isConcluded()
+    {
+        return 1 == isConcluded;
     }
 
     /**
@@ -659,7 +682,7 @@ public class CommonContext implements Cloneable
             }
             finally
             {
-                IoUtil.unmap(cncByteBuffer);
+                BufferUtil.free(cncByteBuffer);
             }
         }
 
@@ -682,7 +705,7 @@ public class CommonContext implements Cloneable
         }
         finally
         {
-            IoUtil.unmap(cncByteBuffer);
+            BufferUtil.free(cncByteBuffer);
         }
     }
 
@@ -767,7 +790,7 @@ public class CommonContext implements Cloneable
             }
             finally
             {
-                IoUtil.unmap(cncByteBuffer);
+                BufferUtil.free(cncByteBuffer);
             }
         }
 
@@ -789,7 +812,7 @@ public class CommonContext implements Cloneable
         }
         finally
         {
-            IoUtil.unmap(cncByteBuffer);
+            BufferUtil.free(cncByteBuffer);
         }
     }
 

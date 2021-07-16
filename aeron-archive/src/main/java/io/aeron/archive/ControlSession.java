@@ -16,7 +16,7 @@
 package io.aeron.archive;
 
 import io.aeron.Aeron;
-import io.aeron.Publication;
+import io.aeron.ExclusivePublication;
 import io.aeron.Subscription;
 import io.aeron.archive.codecs.ControlResponseCode;
 import io.aeron.archive.codecs.RecordingSignal;
@@ -44,15 +44,18 @@ final class ControlSession implements Session
 
     enum State
     {
-        INIT, CONNECTED, CHALLENGED, AUTHENTICATED, ACTIVE, INACTIVE, REJECTED, DONE
+        INIT, CONNECTING, CONNECTED, CHALLENGED, AUTHENTICATED, ACTIVE, INACTIVE, REJECTED, DONE
     }
 
     private final long controlSessionId;
     private final long connectTimeoutMs;
+    private final long controlPublicationId;
     private long correlationId;
     private long resendDeadlineMs;
     private long activityDeadlineMs;
     private Session activeListing = null;
+    private ExclusivePublication controlPublication;
+    private final Aeron aeron;
     private final ArchiveConductor conductor;
     private final CachedEpochClock cachedEpochClock;
     private final ControlResponseProxy controlResponseProxy;
@@ -60,7 +63,6 @@ final class ControlSession implements Session
     private final ControlSessionProxy controlSessionProxy;
     private final ArrayDeque<BooleanSupplier> queuedResponses = new ArrayDeque<>(8);
     private final ControlSessionDemuxer demuxer;
-    private final Publication controlPublication;
     private final String invalidVersionMessage;
     private State state = State.INIT;
 
@@ -68,9 +70,10 @@ final class ControlSession implements Session
         final long controlSessionId,
         final long correlationId,
         final long connectTimeoutMs,
+        final long controlPublicationId,
         final String invalidVersionMessage,
         final ControlSessionDemuxer demuxer,
-        final Publication controlPublication,
+        final Aeron aeron,
         final ArchiveConductor conductor,
         final CachedEpochClock cachedEpochClock,
         final ControlResponseProxy controlResponseProxy,
@@ -82,7 +85,8 @@ final class ControlSession implements Session
         this.connectTimeoutMs = connectTimeoutMs;
         this.invalidVersionMessage = invalidVersionMessage;
         this.demuxer = demuxer;
-        this.controlPublication = controlPublication;
+        this.aeron = aeron;
+        this.controlPublicationId = controlPublicationId;
         this.conductor = conductor;
         this.cachedEpochClock = cachedEpochClock;
         this.controlResponseProxy = controlResponseProxy;
@@ -122,6 +126,7 @@ final class ControlSession implements Session
         }
 
         CloseHelper.close(conductor.context().countedErrorHandler(), controlPublication);
+
         demuxer.removeControlSession(this);
         if (!conductor.context().controlSessionsCounter().isClosed())
         {
@@ -148,6 +153,10 @@ final class ControlSession implements Session
         switch (state)
         {
             case INIT:
+                workCount += waitForPublication(nowMs);
+                break;
+
+            case CONNECTING:
                 workCount += waitForConnection(nowMs);
                 break;
 
@@ -194,7 +203,7 @@ final class ControlSession implements Session
         return conductor;
     }
 
-    Publication controlPublication()
+    ExclusivePublication controlPublication()
     {
         return controlPublication;
     }
@@ -660,6 +669,21 @@ final class ControlSession implements Session
             code,
             message,
             this));
+    }
+
+    private int waitForPublication(final long nowMs)
+    {
+        int workCount = 0;
+
+        controlPublication = aeron.getExclusivePublication(controlPublicationId);
+        if (null != controlPublication)
+        {
+            activityDeadlineMs = nowMs + connectTimeoutMs;
+            state(State.CONNECTING);
+            workCount += 1;
+        }
+
+        return workCount;
     }
 
     private int waitForConnection(final long nowMs)

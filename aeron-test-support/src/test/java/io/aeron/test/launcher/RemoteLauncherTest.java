@@ -15,6 +15,7 @@
  */
 package io.aeron.test.launcher;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class RemoteLauncherTest
 {
     @Test
+    @Disabled
     void shouldLaunchShortLivedCommand() throws IOException, InterruptedException
     {
         final RemoteLaunchServer server = new RemoteLaunchServer("localhost", 11112);
@@ -49,7 +51,7 @@ public class RemoteLauncherTest
 
                     final byte[] expectedBytes = message.getBytes(StandardCharsets.UTF_8);
                     final byte[] actualBytes = Arrays.copyOf(out.toByteArray(), expectedBytes.length);
-                    assertArrayEquals(expectedBytes, actualBytes, out.toString() + " vs " + new String(actualBytes));
+                    assertArrayEquals(expectedBytes, actualBytes, out + " vs " + new String(actualBytes));
                 }
             );
         }

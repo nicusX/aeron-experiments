@@ -24,14 +24,18 @@ import io.aeron.cluster.client.AeronCluster;
 import io.aeron.cluster.client.ClusterException;
 import io.aeron.cluster.client.EgressListener;
 import io.aeron.cluster.codecs.EventCode;
+import io.aeron.cluster.service.Cluster;
 import io.aeron.cluster.service.ClusteredServiceContainer;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
+import io.aeron.exceptions.RegistrationException;
 import io.aeron.exceptions.TimeoutException;
 import io.aeron.logbuffer.Header;
 import io.aeron.test.DataCollector;
 import io.aeron.test.Tests;
+import io.aeron.test.driver.RedirectingNameResolver;
 import org.agrona.*;
+import org.agrona.collections.IntHashSet;
 import org.agrona.collections.MutableInteger;
 import org.agrona.collections.MutableLong;
 import org.agrona.concurrent.EpochClock;
@@ -39,12 +43,12 @@ import org.agrona.concurrent.NoOpLock;
 import org.agrona.concurrent.YieldingIdleStrategy;
 import org.agrona.concurrent.status.AtomicCounter;
 import org.agrona.concurrent.status.CountersReader;
-import org.junit.jupiter.api.TestInfo;
 
 import java.io.File;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -68,11 +72,17 @@ public class TestCluster implements AutoCloseable
     // private static final String LOG_CHANNEL =
     //     "aeron:udp?term-length=512k|endpoint=224.20.30.39:24326|interface=localhost";
     private static final String ARCHIVE_CONTROL_REQUEST_CHANNEL = "aeron:udp?endpoint=localhost:8010";
-    private static final String ARCHIVE_CONTROL_RESPONSE_CHANNEL = "aeron:udp?endpoint=localhost:8020";
+    private static final String ARCHIVE_CONTROL_RESPONSE_CHANNEL = "aeron:udp?endpoint=localhost:0";
+    private static final String REPLICATION_CHANNEL = "aeron:udp?endpoint=localhost:0";
     private static final String ARCHIVE_LOCAL_CONTROL_CHANNEL = "aeron:ipc";
     private static final String EGRESS_CHANNEL = "aeron:udp?term-length=128k|endpoint=localhost:0";
     private static final String INGRESS_CHANNEL = "aeron:udp?term-length=128k";
     private static final long STARTUP_CANVASS_TIMEOUT_NS = TimeUnit.SECONDS.toNanos(5);
+
+    public static final String DEFAULT_NODE_MAPPINGS =
+        "node0,localhost,localhost|" +
+        "node1,localhost,localhost|" +
+        "node2,localhost,localhost|";
 
     private final DataCollector dataCollector = new DataCollector();
     private final ExpandableArrayBuffer msgBuffer = new ExpandableArrayBuffer();
@@ -133,13 +143,18 @@ public class TestCluster implements AutoCloseable
     private final int dynamicMemberCount;
     private final int appointedLeaderId;
     private final int backupNodeIndex;
+    private final IntHashSet invalidInitialResolutions;
     private boolean shouldErrorOnClientClose = true;
 
     private MediaDriver clientMediaDriver;
     private AeronCluster client;
     private TestBackupNode backupNode;
 
-    TestCluster(final int staticMemberCount, final int dynamicMemberCount, final int appointedLeaderId)
+    TestCluster(
+        final int staticMemberCount,
+        final int dynamicMemberCount,
+        final int appointedLeaderId,
+        final IntHashSet invalidInitialResolutions)
     {
         final int memberCount = staticMemberCount + dynamicMemberCount;
         if ((memberCount + 1) >= 10)
@@ -156,11 +171,17 @@ public class TestCluster implements AutoCloseable
         this.staticMemberCount = staticMemberCount;
         this.dynamicMemberCount = dynamicMemberCount;
         this.appointedLeaderId = appointedLeaderId;
+        this.invalidInitialResolutions = invalidInitialResolutions;
     }
 
     public static void awaitElectionClosed(final TestNode follower)
     {
-        while (follower.electionState() != ElectionState.CLOSED)
+        awaitElectionState(follower, ElectionState.CLOSED);
+    }
+
+    public static void awaitElectionState(final TestNode node, final ElectionState electionState)
+    {
+        while (node.electionState() != electionState)
         {
             await(10);
         }
@@ -224,36 +245,6 @@ public class TestCluster implements AutoCloseable
         return node::closeAndDelete;
     }
 
-    public static TestCluster startThreeNodeStaticCluster(final int appointedLeaderId)
-    {
-        final TestCluster testCluster = new TestCluster(3, 0, appointedLeaderId);
-        for (int i = 0; i < 3; i++)
-        {
-            testCluster.startStaticNode(i, true);
-        }
-
-        return testCluster;
-    }
-
-    public static TestCluster startSingleNodeStaticCluster()
-    {
-        final TestCluster testCluster = new TestCluster(1, 0, 0);
-        testCluster.startStaticNode(0, true);
-
-        return testCluster;
-    }
-
-    public static TestCluster startCluster(final int staticMemberCount, final int dynamicMemberCount)
-    {
-        final TestCluster testCluster = new TestCluster(staticMemberCount, dynamicMemberCount, NULL_VALUE);
-        for (int i = 0; i < staticMemberCount; i++)
-        {
-            testCluster.startStaticNode(i, true);
-        }
-
-        return testCluster;
-    }
-
     public TestNode startStaticNode(final int index, final boolean cleanStart)
     {
         return startStaticNode(index, cleanStart, TestNode.TestService::new);
@@ -264,21 +255,18 @@ public class TestCluster implements AutoCloseable
     {
         final String baseDirName = CommonContext.getAeronDirectoryName() + "-" + index;
         final String aeronDirName = CommonContext.getAeronDirectoryName() + "-" + index + "-driver";
-        final TestNode.Context context = new TestNode.Context(serviceSupplier.get().index(index));
+        final TestNode.Context context = new TestNode.Context(serviceSupplier.get().index(index), nodeNameMappings());
 
         context.aeronArchiveContext
             .lock(NoOpLock.INSTANCE)
             .controlRequestChannel(memberSpecificPort(ARCHIVE_CONTROL_REQUEST_CHANNEL, index))
-            .controlRequestStreamId(100)
             .controlResponseChannel(memberSpecificPort(ARCHIVE_CONTROL_RESPONSE_CHANNEL, index))
-            .controlResponseStreamId(110 + index)
             .aeronDirectoryName(baseDirName);
 
         context.mediaDriverContext
             .aeronDirectoryName(aeronDirName)
             .threadingMode(ThreadingMode.SHARED)
             .termBufferSparseFile(true)
-            .errorHandler(errorHandler(index))
             .dirDeleteOnShutdown(false)
             .dirDeleteOnStart(true);
 
@@ -286,17 +274,13 @@ public class TestCluster implements AutoCloseable
             .catalogCapacity(CATALOG_CAPACITY)
             .archiveDir(new File(baseDirName, "archive"))
             .controlChannel(context.aeronArchiveContext.controlRequestChannel())
-            .controlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .localControlChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
             .recordingEventsEnabled(false)
-            .localControlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .recordingEventsEnabled(false)
             .threadingMode(ArchiveThreadingMode.SHARED)
-            .deleteArchiveOnStart(cleanStart)
-            .errorHandler(errorHandler(index));
+            .deleteArchiveOnStart(cleanStart);
 
         context.consensusModuleContext
-            .errorHandler(errorHandler(index))
             .clusterMemberId(index)
             .clusterMembers(staticClusterMembers)
             .startupCanvassTimeoutNs(STARTUP_CANVASS_TIMEOUT_NS)
@@ -304,6 +288,7 @@ public class TestCluster implements AutoCloseable
             .clusterDir(new File(baseDirName, "consensus-module"))
             .ingressChannel(INGRESS_CHANNEL)
             .logChannel(LOG_CHANNEL)
+            .replicationChannel(REPLICATION_CHANNEL)
             .archiveContext(context.aeronArchiveContext.clone()
                 .controlRequestChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
                 .controlResponseChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL))
@@ -316,10 +301,16 @@ public class TestCluster implements AutoCloseable
                 .controlRequestChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
                 .controlResponseChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL))
             .clusterDir(new File(baseDirName, "service"))
-            .clusteredService(context.service)
-            .errorHandler(errorHandler(index));
+            .clusteredService(context.service);
 
-        nodes[index] = new TestNode(context, dataCollector);
+        try
+        {
+            nodes[index] = new TestNode(context, dataCollector);
+        }
+        catch (final RegistrationException ex)
+        {
+            nodes[index] = null;
+        }
 
         return nodes[index];
     }
@@ -334,21 +325,18 @@ public class TestCluster implements AutoCloseable
     {
         final String baseDirName = CommonContext.getAeronDirectoryName() + "-" + index;
         final String aeronDirName = CommonContext.getAeronDirectoryName() + "-" + index + "-driver";
-        final TestNode.Context context = new TestNode.Context(serviceSupplier.get().index(index));
+        final TestNode.Context context = new TestNode.Context(serviceSupplier.get().index(index), nodeNameMappings());
 
         context.aeronArchiveContext
             .lock(NoOpLock.INSTANCE)
             .controlRequestChannel(memberSpecificPort(ARCHIVE_CONTROL_REQUEST_CHANNEL, index))
-            .controlRequestStreamId(100)
             .controlResponseChannel(memberSpecificPort(ARCHIVE_CONTROL_RESPONSE_CHANNEL, index))
-            .controlResponseStreamId(110 + index)
             .aeronDirectoryName(baseDirName);
 
         context.mediaDriverContext
             .aeronDirectoryName(aeronDirName)
             .threadingMode(ThreadingMode.SHARED)
             .termBufferSparseFile(true)
-            .errorHandler(errorHandler(index))
             .dirDeleteOnStart(true)
             .dirDeleteOnShutdown(false);
 
@@ -357,15 +345,12 @@ public class TestCluster implements AutoCloseable
             .segmentFileLength(SEGMENT_FILE_LENGTH)
             .archiveDir(new File(baseDirName, "archive"))
             .controlChannel(context.aeronArchiveContext.controlRequestChannel())
-            .controlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .localControlChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
-            .localControlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .recordingEventsEnabled(false)
             .threadingMode(ArchiveThreadingMode.SHARED)
             .deleteArchiveOnStart(cleanStart);
 
         context.consensusModuleContext
-            .errorHandler(errorHandler(index))
             .clusterMemberId(NULL_VALUE)
             .clusterMembers("")
             .clusterConsensusEndpoints(clusterConsensusEndpoints)
@@ -373,6 +358,7 @@ public class TestCluster implements AutoCloseable
             .clusterDir(new File(baseDirName, "consensus-module"))
             .ingressChannel(INGRESS_CHANNEL)
             .logChannel(LOG_CHANNEL)
+            .replicationChannel(REPLICATION_CHANNEL)
             .archiveContext(context.aeronArchiveContext.clone()
                 .controlRequestChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
                 .controlResponseChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL))
@@ -385,8 +371,7 @@ public class TestCluster implements AutoCloseable
                 .controlRequestChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
                 .controlResponseChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL))
             .clusterDir(new File(baseDirName, "service"))
-            .clusteredService(context.service)
-            .errorHandler(errorHandler(index));
+            .clusteredService(context.service);
 
         nodes[index] = new TestNode(context, dataCollector);
 
@@ -403,21 +388,18 @@ public class TestCluster implements AutoCloseable
     {
         final String baseDirName = CommonContext.getAeronDirectoryName() + "-" + index;
         final String aeronDirName = CommonContext.getAeronDirectoryName() + "-" + index + "-driver";
-        final TestNode.Context context = new TestNode.Context(serviceSupplier.get().index(index));
+        final TestNode.Context context = new TestNode.Context(serviceSupplier.get().index(index), nodeNameMappings());
 
         context.aeronArchiveContext
             .lock(NoOpLock.INSTANCE)
             .controlRequestChannel(memberSpecificPort(ARCHIVE_CONTROL_REQUEST_CHANNEL, index))
-            .controlRequestStreamId(100)
             .controlResponseChannel(memberSpecificPort(ARCHIVE_CONTROL_RESPONSE_CHANNEL, index))
-            .controlResponseStreamId(110 + index)
             .aeronDirectoryName(baseDirName);
 
         context.mediaDriverContext
             .aeronDirectoryName(aeronDirName)
             .threadingMode(ThreadingMode.SHARED)
             .termBufferSparseFile(true)
-            .errorHandler(errorHandler(index))
             .dirDeleteOnShutdown(false)
             .dirDeleteOnStart(true);
 
@@ -425,16 +407,13 @@ public class TestCluster implements AutoCloseable
             .catalogCapacity(CATALOG_CAPACITY)
             .archiveDir(new File(baseDirName, "archive"))
             .controlChannel(context.aeronArchiveContext.controlRequestChannel())
-            .controlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .localControlChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
             .recordingEventsEnabled(false)
-            .localControlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .recordingEventsEnabled(false)
             .threadingMode(ArchiveThreadingMode.SHARED)
             .deleteArchiveOnStart(false);
 
         context.consensusModuleContext
-            .errorHandler(errorHandler(index))
             .clusterMemberId(index)
             .clusterMembers(clusterMembers(0, staticMemberCount + 1))
             .startupCanvassTimeoutNs(STARTUP_CANVASS_TIMEOUT_NS)
@@ -442,6 +421,7 @@ public class TestCluster implements AutoCloseable
             .clusterDir(new File(baseDirName, "consensus-module"))
             .ingressChannel(INGRESS_CHANNEL)
             .logChannel(LOG_CHANNEL)
+            .replicationChannel(REPLICATION_CHANNEL)
             .archiveContext(context.aeronArchiveContext.clone()
                 .controlRequestChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
                 .controlResponseChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL))
@@ -454,8 +434,7 @@ public class TestCluster implements AutoCloseable
                 .controlRequestChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
                 .controlResponseChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL))
             .clusterDir(new File(baseDirName, "service"))
-            .clusteredService(context.service)
-            .errorHandler(errorHandler(index));
+            .clusteredService(context.service);
 
         nodes[index] = new TestNode(context, dataCollector);
 
@@ -471,9 +450,7 @@ public class TestCluster implements AutoCloseable
 
         context.aeronArchiveContext
             .controlRequestChannel(memberSpecificPort(ARCHIVE_CONTROL_REQUEST_CHANNEL, index))
-            .controlRequestStreamId(100)
             .controlResponseChannel(memberSpecificPort(ARCHIVE_CONTROL_RESPONSE_CHANNEL, index))
-            .controlResponseStreamId(110 + index)
             .aeronDirectoryName(baseDirName);
 
         context.mediaDriverContext
@@ -482,22 +459,21 @@ public class TestCluster implements AutoCloseable
             .termBufferSparseFile(true)
             .errorHandler(errorHandler(index))
             .dirDeleteOnStart(true)
-            .dirDeleteOnShutdown(false);
+            .dirDeleteOnShutdown(false)
+            .nameResolver(new RedirectingNameResolver(nodeNameMappings()));
 
         context.archiveContext
             .catalogCapacity(CATALOG_CAPACITY)
             .segmentFileLength(SEGMENT_FILE_LENGTH)
             .archiveDir(new File(baseDirName, "archive"))
             .controlChannel(context.aeronArchiveContext.controlRequestChannel())
-            .controlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .localControlChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
-            .localControlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .recordingEventsEnabled(false)
             .threadingMode(ArchiveThreadingMode.SHARED)
             .deleteArchiveOnStart(cleanStart);
 
         final ChannelUri consensusChannelUri = ChannelUri.parse(context.clusterBackupContext.consensusChannel());
-        final String backupStatusEndpoint = clusterBackupStatusEndpoint(0, staticMemberCount + dynamicMemberCount);
+        final String backupStatusEndpoint = clusterBackupStatusEndpoint(0, index);
         consensusChannelUri.put(CommonContext.ENDPOINT_PARAM_NAME, backupStatusEndpoint);
 
         context.clusterBackupContext
@@ -505,9 +481,8 @@ public class TestCluster implements AutoCloseable
             .clusterConsensusEndpoints(clusterConsensusEndpoints)
             .consensusChannel(consensusChannelUri.toString())
             .clusterBackupCoolDownIntervalNs(TimeUnit.SECONDS.toNanos(1))
-            .catchupEndpoint("localhost:0")
+            .catchupEndpoint(hostname(index) + ":0")
             .clusterDir(new File(baseDirName, "cluster-backup"))
-            .archiveContext(context.aeronArchiveContext.clone())
             .deleteDirOnStart(cleanStart);
 
         backupNode = new TestBackupNode(context);
@@ -524,7 +499,9 @@ public class TestCluster implements AutoCloseable
     {
         final String baseDirName = CommonContext.getAeronDirectoryName() + "-" + backupNodeIndex;
         final String aeronDirName = CommonContext.getAeronDirectoryName() + "-" + backupNodeIndex + "-driver";
-        final TestNode.Context context = new TestNode.Context(serviceSupplier.get().index(backupNodeIndex));
+        final TestNode.Context context = new TestNode.Context(
+            serviceSupplier.get().index(backupNodeIndex),
+            nodeNameMappings());
 
         if (null == backupNode || !backupNode.isClosed())
         {
@@ -533,37 +510,32 @@ public class TestCluster implements AutoCloseable
 
         context.aeronArchiveContext
             .controlRequestChannel(memberSpecificPort(ARCHIVE_CONTROL_REQUEST_CHANNEL, backupNodeIndex))
-            .controlRequestStreamId(100)
             .controlResponseChannel(memberSpecificPort(ARCHIVE_CONTROL_RESPONSE_CHANNEL, backupNodeIndex))
-            .controlResponseStreamId(110 + backupNodeIndex)
             .aeronDirectoryName(aeronDirName);
 
         context.mediaDriverContext
             .aeronDirectoryName(aeronDirName)
             .threadingMode(ThreadingMode.SHARED)
             .termBufferSparseFile(true)
-            .errorHandler(errorHandler(backupNodeIndex))
             .dirDeleteOnStart(true);
 
         context.archiveContext
             .catalogCapacity(CATALOG_CAPACITY)
             .archiveDir(new File(baseDirName, "archive"))
             .controlChannel(context.aeronArchiveContext.controlRequestChannel())
-            .controlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .localControlChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
-            .localControlStreamId(context.aeronArchiveContext.controlRequestStreamId())
             .recordingEventsEnabled(false)
             .threadingMode(ArchiveThreadingMode.SHARED)
             .deleteArchiveOnStart(false);
 
         context.consensusModuleContext
-            .errorHandler(errorHandler(backupNodeIndex))
             .clusterMemberId(backupNodeIndex)
             .clusterMembers(singleNodeClusterMember(0, backupNodeIndex))
             .appointedLeaderId(backupNodeIndex)
             .clusterDir(new File(baseDirName, "cluster-backup"))
             .ingressChannel(INGRESS_CHANNEL)
             .logChannel(LOG_CHANNEL)
+            .replicationChannel(REPLICATION_CHANNEL)
             .archiveContext(context.aeronArchiveContext.clone()
                 .controlRequestChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
                 .controlResponseChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL))
@@ -576,8 +548,7 @@ public class TestCluster implements AutoCloseable
                 .controlRequestChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
                 .controlResponseChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL))
             .clusterDir(new File(baseDirName, "service"))
-            .clusteredService(context.service)
-            .errorHandler(errorHandler(backupNodeIndex));
+            .clusteredService(context.service);
 
         backupNode = null;
         nodes[backupNodeIndex] = new TestNode(context, dataCollector);
@@ -624,14 +595,14 @@ public class TestCluster implements AutoCloseable
         return msgBuffer;
     }
 
-    public void reconnectClient()
+    public AeronCluster reconnectClient()
     {
         if (null == client)
         {
             throw new IllegalStateException("Aeron client not previously connected");
         }
 
-        connectClient();
+        return connectClient();
     }
 
     public AeronCluster connectClient()
@@ -650,12 +621,14 @@ public class TestCluster implements AutoCloseable
         {
             dataCollector.add(Paths.get(aeronDirName));
 
-            clientMediaDriver = MediaDriver.launch(
-                new MediaDriver.Context()
-                    .threadingMode(ThreadingMode.SHARED)
-                    .dirDeleteOnStart(true)
-                    .dirDeleteOnShutdown(false)
-                    .aeronDirectoryName(aeronDirName));
+            final MediaDriver.Context ctx = new MediaDriver.Context()
+                .threadingMode(ThreadingMode.SHARED)
+                .dirDeleteOnStart(true)
+                .dirDeleteOnShutdown(false)
+                .aeronDirectoryName(aeronDirName)
+                .nameResolver(new RedirectingNameResolver(nodeNameMappings()));
+
+            clientMediaDriver = MediaDriver.launch(ctx);
         }
 
         clientCtx
@@ -756,13 +729,7 @@ public class TestCluster implements AutoCloseable
 
         while ((count = responseCount.get()) < messageCount)
         {
-            Thread.yield();
-            if (Thread.interrupted())
-            {
-                final String message = "count=" + count + " awaiting=" + messageCount;
-                Tests.unexpectedInterruptStackTrace(message);
-                fail(message);
-            }
+            Tests.sleep(1, "count=%d awaiting=%d", count, messageCount);
 
             client.pollEgress();
 
@@ -794,9 +761,13 @@ public class TestCluster implements AutoCloseable
 
     public void awaitActiveSessionCount(final TestNode node, final int count)
     {
+        final Supplier<String> message =
+            () -> "node " + node + " fail to reach active session count, expected=" + count + ", current=" +
+            node.service().activeSessionCount();
+
         while (node.service().activeSessionCount() != count)
         {
-            await(1);
+            await(1, message);
         }
     }
 
@@ -838,7 +809,7 @@ public class TestCluster implements AutoCloseable
     public TestNode awaitLeader(final int skipIndex)
     {
         final Supplier<String> message = () -> Arrays.stream(nodes)
-            .map((node) -> null != node ? node.index() + " " + node.isLeader() + " " + node.electionState() : "null")
+            .map((node) -> null != node ? node.index() + " " + node.role() + " " + node.electionState() : "null")
             .collect(Collectors.joining(", "));
 
         TestNode leaderNode;
@@ -857,14 +828,41 @@ public class TestCluster implements AutoCloseable
 
     public List<TestNode> followers()
     {
+        return followers(0);
+    }
+
+    public ArrayList<TestNode> followers(final int expectedMinimumFollowerCount)
+    {
         final ArrayList<TestNode> followers = new ArrayList<>();
+        final EnumMap<Cluster.Role, ArrayList<TestNode>> nonFollowers = new EnumMap<>(Cluster.Role.class);
 
         for (final TestNode node : nodes)
         {
-            if (null != node && !node.isClosed() && node.isFollower())
+            if (null != node && !node.isClosed())
             {
-                followers.add(node);
+                while (ElectionState.CLOSED != node.electionState())
+                {
+                    Tests.yield();
+                }
+
+                final Cluster.Role role = node.role();
+                if (role == Cluster.Role.FOLLOWER)
+                {
+                    followers.add(node);
+                }
+                else
+                {
+                    nonFollowers.computeIfAbsent(role, (r) -> new ArrayList<>()).add(node);
+                }
             }
+        }
+
+        if (followers.size() < expectedMinimumFollowerCount)
+        {
+            throw new RuntimeException(
+                "expectedMinimumFollowerCount=" + expectedMinimumFollowerCount +
+                " < followers.size=" + followers.size() +
+                " nonFollowers=" + nonFollowers);
         }
 
         return followers;
@@ -1025,8 +1023,7 @@ public class TestCluster implements AutoCloseable
             if (Thread.interrupted())
             {
                 final String message = "count=" + count + " awaiting=" + messageCount + " node=" + node;
-                Tests.unexpectedInterruptStackTrace(message);
-                fail(message);
+                throw new TimeoutException(message);
             }
 
             if (service.hasReceivedUnexpectedMessage())
@@ -1094,11 +1091,11 @@ public class TestCluster implements AutoCloseable
         {
             builder
                 .append(i).append(',')
-                .append("localhost:2").append(clusterId).append("11").append(i).append(',')
-                .append("localhost:2").append(clusterId).append("22").append(i).append(',')
-                .append("localhost:2").append(clusterId).append("33").append(i).append(',')
-                .append("localhost:0,")
-                .append("localhost:801").append(i).append('|');
+                .append(hostname(i)).append(":2").append(clusterId).append("11").append(i).append(',')
+                .append(hostname(i)).append(":2").append(clusterId).append("22").append(i).append(',')
+                .append(hostname(i)).append(":2").append(clusterId).append("33").append(i).append(',')
+                .append(hostname(i)).append(":0,")
+                .append(hostname(i)).append(":801").append(i).append('|');
         }
 
         builder.setLength(builder.length() - 1);
@@ -1108,12 +1105,14 @@ public class TestCluster implements AutoCloseable
 
     public static String singleNodeClusterMember(final int clusterId, final int i)
     {
+        final String hostname = hostname(i);
+
         return i + "," +
-            "localhost:2" + clusterId + "11" + i + ',' +
-            "localhost:2" + clusterId + "22" + i + ',' +
-            "localhost:2" + clusterId + "33" + i + ',' +
-            "localhost:0," +
-            "localhost:801" + i;
+            hostname + ":2" + clusterId + "11" + i + ',' +
+            hostname + ":2" + clusterId + "22" + i + ',' +
+            hostname + ":2" + clusterId + "33" + i + ',' +
+            hostname + ":0," +
+            hostname + ":801" + i;
     }
 
     public static String ingressEndpoints(final int clusterId, final int memberCount)
@@ -1122,7 +1121,8 @@ public class TestCluster implements AutoCloseable
 
         for (int i = 0; i < memberCount; i++)
         {
-            builder.append(i).append('=').append("localhost:2").append(clusterId).append("11").append(i).append(',');
+            builder.append(i).append('=').append(hostname(i)).append(":2").append(clusterId).append("11")
+                .append(i).append(',');
         }
 
         builder.setLength(builder.length() - 1);
@@ -1137,11 +1137,11 @@ public class TestCluster implements AutoCloseable
         for (int i = 0; i < maxMemberCount; i++)
         {
             clusterMembersEndpoints[i] =
-                "localhost:2" + clusterId + "11" + i + ',' +
-                "localhost:2" + clusterId + "22" + i + ',' +
-                "localhost:2" + clusterId + "33" + i + ',' +
-                "localhost:0," +
-                "localhost:801" + i;
+                hostname(i) + ":2" + clusterId + "11" + i + ',' +
+                hostname(i) + ":2" + clusterId + "22" + i + ',' +
+                hostname(i) + ":2" + clusterId + "33" + i + ',' +
+                hostname(i) + ":0," +
+                hostname(i) + ":801" + i;
         }
 
         return clusterMembersEndpoints;
@@ -1153,7 +1153,7 @@ public class TestCluster implements AutoCloseable
 
         for (int i = 0; i < staticMemberCount; i++)
         {
-            builder.append("localhost:2").append(clusterId).append("22").append(i).append(',');
+            builder.append(hostname(i)).append(":2").append(clusterId).append("22").append(i).append(',');
         }
 
         builder.setLength(builder.length() - 1);
@@ -1161,12 +1161,17 @@ public class TestCluster implements AutoCloseable
         return builder.toString();
     }
 
-    private static String clusterBackupStatusEndpoint(final int clusterId, final int maxMemberCount)
+    static String hostname(final int clusterId)
     {
-        return "localhost:2" + clusterId + "22" + maxMemberCount;
+        return clusterId < 3 ? "node" + clusterId : "localhost";
     }
 
-    public void invalidateLatestSnapshots()
+    private static String clusterBackupStatusEndpoint(final int clusterId, final int maxMemberCount)
+    {
+        return hostname(maxMemberCount) + ":2" + clusterId + "22" + maxMemberCount;
+    }
+
+    public void invalidateLatestSnapshot()
     {
         for (final TestNode node : nodes)
         {
@@ -1180,13 +1185,51 @@ public class TestCluster implements AutoCloseable
         }
     }
 
-    public void dumpData(final TestInfo testInfo, final Throwable ex)
+    public void disableNameResolution(final String hostname)
     {
-        ex.printStackTrace();
-        ClusterTests.printWarning();
+        toggleNameResolution(hostname, RedirectingNameResolver.DISABLE_RESOLUTION);
+    }
 
-        dataCollector.dumpData(testInfo);
-        LangUtil.rethrowUnchecked(ex);
+    public void enableNameResolution(final String hostname)
+    {
+        toggleNameResolution(hostname, RedirectingNameResolver.USE_INITIAL_RESOLUTION_HOST);
+    }
+
+    public void restoreNameResolution(final int nodeId)
+    {
+        invalidInitialResolutions.remove(nodeId);
+        toggleNameResolution(hostname(nodeId), RedirectingNameResolver.USE_RE_RESOLUTION_HOST);
+    }
+
+    private void toggleNameResolution(final String hostname, final int disableValue)
+    {
+        for (final TestNode node : nodes)
+        {
+            if (null != node)
+            {
+                final CountersReader counters = node.mediaDriver().counters();
+                RedirectingNameResolver.updateNameResolutionStatus(counters, hostname, disableValue);
+            }
+        }
+    }
+
+    private String nodeNameMappings()
+    {
+        return nodeNameMappings(invalidInitialResolutions);
+    }
+
+    private static String nodeNameMappings(final IntHashSet invalidInitialResolutions)
+    {
+        return String.format(
+            "node0,%s,localhost|node1,%s,localhost|node2,%s,localhost|",
+            invalidInitialResolutions.contains(0) ? "bad.invalid" : "localhost",
+            invalidInitialResolutions.contains(1) ? "bad.invalid" : "localhost",
+            invalidInitialResolutions.contains(2) ? "bad.invalid" : "localhost");
+    }
+
+    public DataCollector dataCollector()
+    {
+        return dataCollector;
     }
 
     public static class ServiceContext
@@ -1201,7 +1244,8 @@ public class TestCluster implements AutoCloseable
     {
         public final MediaDriver.Context mediaDriverCtx = new MediaDriver.Context();
         public final Archive.Context archiveCtx = new Archive.Context();
-        public final ConsensusModule.Context consensusModuleCtx = new ConsensusModule.Context();
+        public final ConsensusModule.Context consensusModuleCtx = new ConsensusModule.Context()
+            .replicationChannel("aeron:udp?endpoint=localhost:0");
         public final AeronArchive.Context aeronArchiveCtx = new AeronArchive.Context();
     }
 
@@ -1224,9 +1268,7 @@ public class TestCluster implements AutoCloseable
 
         serviceCtx.aeronArchiveCtx
             .controlRequestChannel(nodeCtx.archiveCtx.localControlChannel())
-            .controlRequestStreamId(nodeCtx.archiveCtx.localControlStreamId())
             .controlResponseChannel(nodeCtx.archiveCtx.localControlChannel())
-            .controlResponseStreamId(1100 + serviceIndex)
             .recordingEventsChannel(nodeCtx.archiveCtx.recordingEventsChannel());
 
         serviceCtx.serviceContainerCtx
@@ -1252,25 +1294,22 @@ public class TestCluster implements AutoCloseable
             .termBufferSparseFile(true)
             .errorHandler(errorHandler(index))
             .dirDeleteOnStart(true)
-            .dirDeleteOnShutdown(false);
+            .dirDeleteOnShutdown(false)
+            .nameResolver(new RedirectingNameResolver(DEFAULT_NODE_MAPPINGS));
 
         nodeCtx.archiveCtx
             .catalogCapacity(CATALOG_CAPACITY)
             .segmentFileLength(256 * 1024)
             .archiveDir(new File(baseDirName, "archive"))
             .controlChannel(memberSpecificPort(ARCHIVE_CONTROL_REQUEST_CHANNEL, index))
-            .controlStreamId(100)
             .localControlChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL)
             .recordingEventsEnabled(false)
-            .localControlStreamId(100)
             .threadingMode(ArchiveThreadingMode.SHARED)
             .deleteArchiveOnStart(cleanStart);
 
         nodeCtx.aeronArchiveCtx
             .controlRequestChannel(nodeCtx.archiveCtx.localControlChannel())
-            .controlRequestStreamId(nodeCtx.archiveCtx.localControlStreamId())
             .controlResponseChannel(nodeCtx.archiveCtx.localControlChannel())
-            .controlResponseStreamId(110 + index)
             .recordingEventsChannel(nodeCtx.archiveCtx.recordingEventsChannel())
             .aeronDirectoryName(aeronDirName);
 
@@ -1289,5 +1328,63 @@ public class TestCluster implements AutoCloseable
             .deleteDirOnStart(cleanStart);
 
         return nodeCtx;
+    }
+
+    public static Builder aCluster()
+    {
+        return new Builder();
+    }
+
+    public static class Builder
+    {
+        private int nodeCount = 3;
+        private int dynamicNodeCount = 0;
+        private int appointedLeaderId = NULL_VALUE;
+        private final IntHashSet invalidInitialResolutions = new IntHashSet();
+
+        public Builder withStaticNodes(final int nodeCount)
+        {
+            this.nodeCount = nodeCount;
+            return this;
+        }
+
+        public Builder withDynamicNodes(final int nodeCount)
+        {
+            this.dynamicNodeCount = nodeCount;
+            return this;
+        }
+
+        public Builder withAppointedLeader(final int appointedLeaderId)
+        {
+            this.appointedLeaderId = appointedLeaderId;
+            return this;
+        }
+
+        public Builder withInvalidNameResolution(final int nodeId)
+        {
+            if (2 < nodeId)
+            {
+                throw new IllegalArgumentException("Only nodes 0 to 2 have name mappings that can be invalidated");
+            }
+
+            invalidInitialResolutions.add(nodeId);
+            return this;
+        }
+
+        public TestCluster start()
+        {
+            final TestCluster testCluster = new TestCluster(
+                nodeCount,
+                dynamicNodeCount,
+                appointedLeaderId,
+                invalidInitialResolutions);
+
+            for (int i = 0; i < testCluster.staticMemberCount; i++)
+            {
+                testCluster.startStaticNode(i, true);
+            }
+
+            return testCluster;
+        }
     }
 }

@@ -15,12 +15,16 @@
  */
 package io.aeron.cluster;
 
-import io.aeron.*;
+import io.aeron.CommonContext;
+import io.aeron.Counter;
+import io.aeron.Publication;
 import io.aeron.archive.Archive;
 import io.aeron.archive.ArchiveMarkFile;
 import io.aeron.archive.ArchiveThreadingMode;
 import io.aeron.archive.client.AeronArchive;
-import io.aeron.cluster.client.*;
+import io.aeron.cluster.client.AeronCluster;
+import io.aeron.cluster.client.ClusterException;
+import io.aeron.cluster.client.EgressListener;
 import io.aeron.cluster.codecs.EventCode;
 import io.aeron.cluster.service.ClientSession;
 import io.aeron.cluster.service.Cluster;
@@ -30,6 +34,8 @@ import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.exceptions.TimeoutException;
 import io.aeron.logbuffer.Header;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
 import io.aeron.test.SlowTest;
 import io.aeron.test.Tests;
 import io.aeron.test.cluster.ClusterTests;
@@ -43,7 +49,7 @@ import org.agrona.concurrent.status.CountersReader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.File;
 import java.io.IOException;
@@ -62,6 +68,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @SlowTest
+@ExtendWith(InterruptingTestCallback.class)
 public class StartFromTruncatedRecordingLogTest
 {
     private static final long CATALOG_CAPACITY = 1024 * 1024;
@@ -70,6 +77,7 @@ public class StartFromTruncatedRecordingLogTest
 
     private static final String CLUSTER_MEMBERS = clusterMembersString();
     private static final String LOG_CHANNEL = "aeron:udp?term-length=256k";
+    private static final String REPLICATION_CHANNEL = "aeron:udp?endpoint=localhost:0";
     private static final String ARCHIVE_CONTROL_REQUEST_CHANNEL = "aeron:udp?term-length=64k|endpoint=localhost:801";
     private static final String LOCAL_ARCHIVE_CONTROL_CHANNEL = "aeron:ipc?term-length=64k";
 
@@ -180,7 +188,7 @@ public class StartFromTruncatedRecordingLogTest
     }
 
     @Test
-    @Timeout(30)
+    @InterruptAfter(30)
     public void shouldBeAbleToStartClusterFromTruncatedRecordingLog() throws IOException
     {
         try
@@ -215,7 +223,6 @@ public class StartFromTruncatedRecordingLogTest
         awaitSnapshotCount(1);
         awaitNeutralControlToggle(leaderMemberId);
 
-        terminateCount.set(0);
         shutdown(leaderMemberId);
         awaitSnapshotCount(2);
         Tests.awaitValue(terminateCount, MEMBER_COUNT);
@@ -339,7 +346,6 @@ public class StartFromTruncatedRecordingLogTest
         final AeronArchive.Context archiveCtx = new AeronArchive.Context()
             .lock(NoOpLock.INSTANCE)
             .controlRequestChannel(LOCAL_ARCHIVE_CONTROL_CHANNEL)
-            .controlRequestStreamId(AeronArchive.Configuration.localControlStreamId())
             .controlResponseChannel(LOCAL_ARCHIVE_CONTROL_CHANNEL)
             .aeronDirectoryName(baseDirName);
 
@@ -357,7 +363,6 @@ public class StartFromTruncatedRecordingLogTest
                 .archiveDir(new File(baseDirName, "archive"))
                 .controlChannel(ARCHIVE_CONTROL_REQUEST_CHANNEL + index)
                 .localControlChannel(LOCAL_ARCHIVE_CONTROL_CHANNEL)
-                .localControlStreamId(archiveCtx.controlRequestStreamId())
                 .recordingEventsEnabled(false)
                 .threadingMode(ArchiveThreadingMode.SHARED)
                 .errorHandler(ClusterTests.errorHandler(index))
@@ -372,6 +377,7 @@ public class StartFromTruncatedRecordingLogTest
                 .clusterDir(new File(baseDirName, "consensus-module"))
                 .ingressChannel("aeron:udp?term-length=64k")
                 .logChannel(LOG_CHANNEL)
+                .replicationChannel(REPLICATION_CHANNEL)
                 .archiveContext(archiveCtx.clone())
                 .deleteDirOnStart(cleanStart));
 
@@ -392,7 +398,10 @@ public class StartFromTruncatedRecordingLogTest
             containers[i] = null;
             clusteredMediaDrivers[i].close();
             clusteredMediaDrivers[i] = null;
+            snapshotCounters[i].set(0);
         }
+
+        terminateCount.set(0);
     }
 
     private void connectClient()

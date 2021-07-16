@@ -25,12 +25,13 @@ final class SnapshotReplication
     private final long replicationId;
     private long recordingId = RecordingPos.NULL_RECORDING_ID;
     private boolean isDone = false;
-    private boolean isSync = false;
-    private String errorMessage;
+    private boolean hasSync = false;
+    private final boolean isNew;
 
-    SnapshotReplication(final long replicationId)
+    SnapshotReplication(final long replicationId, final boolean isNew)
     {
         this.replicationId = replicationId;
+        this.isNew = isNew;
     }
 
     void close(final AeronArchive archive)
@@ -52,17 +53,14 @@ final class SnapshotReplication
         return recordingId;
     }
 
+    boolean isComplete()
+    {
+        return hasSync;
+    }
+
     boolean isDone()
     {
         return isDone;
-    }
-
-    void checkForError()
-    {
-        if (null != errorMessage)
-        {
-            throw new ClusterException("error occurred while retrieving snapshot: " + errorMessage);
-        }
     }
 
     void onSignal(final long correlationId, final long recordingId, final long position, final RecordingSignal signal)
@@ -71,29 +69,20 @@ final class SnapshotReplication
         {
             if (RecordingSignal.EXTEND == signal)
             {
-                if (0 != position)
+                this.recordingId = recordingId;
+
+                if (isNew && 0 != position)
                 {
-                    errorMessage = "unexpected start position expected=0 actual=" + position;
-                }
-                else
-                {
-                    this.recordingId = recordingId;
+                    throw new ClusterException("expected new extend signal at 0: position=" + position);
                 }
             }
             else if (RecordingSignal.SYNC == signal)
             {
-                isSync = true;
+                hasSync = true;
             }
             else if (RecordingSignal.STOP == signal)
             {
-                if (isSync)
-                {
-                    isDone = true;
-                }
-                else
-                {
-                    errorMessage = "unexpected stop position " + position;
-                }
+                isDone = true;
             }
         }
     }

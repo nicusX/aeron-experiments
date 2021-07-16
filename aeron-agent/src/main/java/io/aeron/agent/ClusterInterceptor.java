@@ -15,8 +15,6 @@
  */
 package io.aeron.agent;
 
-import io.aeron.cluster.ConsensusModule;
-import io.aeron.cluster.service.Cluster;
 import net.bytebuddy.asm.Advice;
 
 import static io.aeron.agent.ClusterEventCode.*;
@@ -38,7 +36,9 @@ class ClusterInterceptor
         @Advice.OnMethodEnter
         static void onNewLeadershipTerm(
             final long logLeadershipTermId,
-            final long logTruncatePosition,
+            final long nextLeadershipTermId,
+            final long nextTermBaseLogPosition,
+            final long nextLogPosition,
             final long leadershipTermId,
             final long termBaseLogPosition,
             final long logPosition,
@@ -50,7 +50,9 @@ class ClusterInterceptor
         {
             LOGGER.logNewLeadershipTerm(
                 logLeadershipTermId,
-                logTruncatePosition,
+                nextLeadershipTermId,
+                nextTermBaseLogPosition,
+                nextLogPosition,
                 leadershipTermId,
                 termBaseLogPosition,
                 logPosition,
@@ -65,8 +67,7 @@ class ClusterInterceptor
     static class ConsensusModuleStateChange
     {
         @Advice.OnMethodEnter
-        static void stateChange(
-            final ConsensusModule.State oldState, final ConsensusModule.State newState, final int memberId)
+        static <E extends Enum<E>> void stateChange(final E oldState, final E newState, final int memberId)
         {
             LOGGER.logStateChange(STATE_CHANGE, oldState, newState, memberId);
         }
@@ -75,7 +76,7 @@ class ClusterInterceptor
     static class ConsensusModuleRoleChange
     {
         @Advice.OnMethodEnter
-        static void roleChange(final Cluster.Role oldRole, final Cluster.Role newRole, final int memberId)
+        static <E extends Enum<E>> void roleChange(final E oldRole, final E newRole, final int memberId)
         {
             LOGGER.logStateChange(ROLE_CHANGE, oldRole, newRole, memberId);
         }
@@ -85,9 +86,12 @@ class ClusterInterceptor
     {
         @Advice.OnMethodEnter
         static void onCanvassPosition(
-            final long logLeadershipTermId, final long logPosition, final int followerMemberId)
+            final long logLeadershipTermId,
+            final long logPosition,
+            final long leadershipTermId,
+            final int followerMemberId)
         {
-            LOGGER.logCanvassPosition(logLeadershipTermId, logPosition, followerMemberId);
+            LOGGER.logCanvassPosition(logLeadershipTermId, leadershipTermId, logPosition, followerMemberId);
         }
     }
 

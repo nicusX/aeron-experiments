@@ -64,7 +64,9 @@ public class StaticWindowCongestionControl implements CongestionControl
     {
         final int initialWindowLength = udpChannel.receiverWindowLength() != 0 ?
             udpChannel.receiverWindowLength() : context.initialWindowLength();
-        ccOutcome = CongestionControl.packOutcome(Math.min(termLength >> 1, initialWindowLength), false);
+
+        ccOutcome = CongestionControl.packOutcome(
+            Configuration.receiverWindowLength(termLength, initialWindowLength), false);
     }
 
     /**
@@ -115,6 +117,14 @@ public class StaticWindowCongestionControl implements CongestionControl
      * {@inheritDoc}
      */
     public int initialWindowLength()
+    {
+        return CongestionControl.receiverWindowLength(ccOutcome);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public int maxWindowLength()
     {
         return CongestionControl.receiverWindowLength(ccOutcome);
     }

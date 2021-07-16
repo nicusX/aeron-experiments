@@ -24,6 +24,7 @@ import io.aeron.cluster.service.*;
 import io.aeron.exceptions.ConcurrentConcludeException;
 import org.agrona.CloseHelper;
 import org.agrona.ErrorHandler;
+import org.agrona.ExpandableArrayBuffer;
 import org.agrona.IoUtil;
 import org.agrona.collections.Int2ObjectHashMap;
 import org.agrona.concurrent.*;
@@ -291,7 +292,8 @@ public final class ClusterBackup implements AutoCloseable
         /**
          * Default channel template used for catchup and replication of log and snapshots.
          */
-        public static final String CLUSTER_BACKUP_CATCHUP_CHANNEL_DEFAULT = "aeron:udp?alias=backup|cc=cubic";
+        public static final String CLUSTER_BACKUP_CATCHUP_CHANNEL_DEFAULT =
+            "aeron:udp?alias=backup|cc=cubic|so-sndbuf=512k|so-rcvbuf=512k|rcv-wnd=512k";
 
         /**
          * Interval at which a cluster backup will send backup queries.
@@ -460,6 +462,7 @@ public final class ClusterBackup implements AutoCloseable
         private Counter nextQueryDeadlineMsCounter;
 
         private AeronArchive.Context archiveContext;
+        private AeronArchive.Context clusterArchiveContext;
         private ShutdownSignalBarrier shutdownSignalBarrier;
         private Runnable terminationHook;
         private ClusterBackupEventsListener eventsListener;
@@ -487,6 +490,8 @@ public final class ClusterBackup implements AutoCloseable
         @SuppressWarnings("MethodLength")
         public void conclude()
         {
+            final ExpandableArrayBuffer buffer = new ExpandableArrayBuffer();
+
             if (0 != IS_CONCLUDED_UPDATER.getAndSet(this, 1))
             {
                 throw new ConcurrentConcludeException();
@@ -549,7 +554,7 @@ public final class ClusterBackup implements AutoCloseable
                 if (null == errorCounter)
                 {
                     errorCounter = ClusterCounters.allocate(
-                        aeron, "ClusterBackup errors", CLUSTER_BACKUP_ERROR_COUNT_TYPE_ID, clusterId);
+                        aeron, buffer, "ClusterBackup errors", CLUSTER_BACKUP_ERROR_COUNT_TYPE_ID, clusterId);
                 }
             }
 
@@ -579,19 +584,20 @@ public final class ClusterBackup implements AutoCloseable
 
             if (null == stateCounter)
             {
-                stateCounter = ClusterCounters.allocate(aeron, "ClusterBackup State", BACKUP_STATE_TYPE_ID, clusterId);
+                stateCounter = ClusterCounters.allocate(
+                    aeron, buffer, "ClusterBackup State", BACKUP_STATE_TYPE_ID, clusterId);
             }
 
             if (null == liveLogPositionCounter)
             {
                 liveLogPositionCounter = ClusterCounters.allocate(
-                    aeron, "ClusterBackup live log position", LIVE_LOG_POSITION_TYPE_ID, clusterId);
+                    aeron, buffer, "ClusterBackup live log position", LIVE_LOG_POSITION_TYPE_ID, clusterId);
             }
 
             if (null == nextQueryDeadlineMsCounter)
             {
                 nextQueryDeadlineMsCounter = ClusterCounters.allocate(
-                    aeron, "ClusterBackup next query deadline (ms)", QUERY_DEADLINE_TYPE_ID, clusterId);
+                    aeron, buffer, "ClusterBackup next query deadline (ms)", QUERY_DEADLINE_TYPE_ID, clusterId);
             }
 
             if (null == threadFactory)
@@ -615,6 +621,26 @@ public final class ClusterBackup implements AutoCloseable
             archiveContext
                 .aeron(aeron)
                 .errorHandler(errorHandler)
+                .ownsAeronClient(false)
+                .lock(NoOpLock.INSTANCE);
+
+            if (!archiveContext.controlRequestChannel().startsWith(CommonContext.IPC_CHANNEL))
+            {
+                throw new ClusterException("local archive control must be IPC");
+            }
+
+            if (!archiveContext.controlResponseChannel().startsWith(CommonContext.IPC_CHANNEL))
+            {
+                throw new ClusterException("local archive control must be IPC");
+            }
+
+            if (null == clusterArchiveContext)
+            {
+                clusterArchiveContext = new AeronArchive.Context();
+            }
+
+            clusterArchiveContext
+                .aeron(aeron)
                 .ownsAeronClient(false)
                 .lock(NoOpLock.INSTANCE);
 
@@ -799,10 +825,9 @@ public final class ClusterBackup implements AutoCloseable
         }
 
         /**
-         * Set the {@link io.aeron.archive.client.AeronArchive.Context} that should be used for communicating with the
-         * local Archive.
+         * Set the {@link io.aeron.archive.client.AeronArchive.Context} used for communicating with the local Archive.
          *
-         * @param archiveContext that should be used for communicating with the local Archive.
+         * @param archiveContext used for communicating with the local Archive.
          * @return this for a fluent API.
          */
         public Context archiveContext(final AeronArchive.Context archiveContext)
@@ -812,15 +837,39 @@ public final class ClusterBackup implements AutoCloseable
         }
 
         /**
-         * Get the {@link io.aeron.archive.client.AeronArchive.Context} that should be used for communicating with
-         * the local Archive.
+         * Get the {@link io.aeron.archive.client.AeronArchive.Context} used for communicating with the local Archive.
          *
-         * @return the {@link io.aeron.archive.client.AeronArchive.Context} that should be used for communicating
-         * with the local Archive.
+         * @return the {@link io.aeron.archive.client.AeronArchive.Context} used for communicating with the local
+         * Archive.
          */
         public AeronArchive.Context archiveContext()
         {
             return archiveContext;
+        }
+
+        /**
+         * Set the {@link io.aeron.archive.client.AeronArchive.Context} used for communicating with the remote Archive
+         * in the cluster being backed up.
+         *
+         * @param archiveContext used for communicating with the remote Archive in the cluster being backed up.
+         * @return this for a fluent API.
+         */
+        public Context clusterArchiveContext(final AeronArchive.Context archiveContext)
+        {
+            this.clusterArchiveContext = archiveContext;
+            return this;
+        }
+
+        /**
+         * Get the {@link io.aeron.archive.client.AeronArchive.Context} used for communicating with the remote Archive
+         * in the cluster being backed up.
+         *
+         * @return the {@link io.aeron.archive.client.AeronArchive.Context} used for communicating the remote Archive
+         * in the cluster being backed up.
+         */
+        public AeronArchive.Context clusterArchiveContext()
+        {
+            return clusterArchiveContext;
         }
 
         /**
@@ -1509,6 +1558,54 @@ public final class ClusterBackup implements AutoCloseable
             }
 
             CloseHelper.close(countedErrorHandler, markFile);
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        public String toString()
+        {
+            return "ClusterBackup.Context" +
+                "\n{" +
+                "\n    isConcluded=" + (1 == isConcluded) +
+                "\n    ownsAeronClient=" + ownsAeronClient +
+                "\n    aeronDirectoryName='" + aeronDirectoryName + '\'' +
+                "\n    aeron=" + aeron +
+                "\n    clusterId=" + clusterId +
+                "\n    consensusChannel='" + consensusChannel + '\'' +
+                "\n    consensusStreamId=" + consensusStreamId +
+                "\n    consensusModuleSnapshotStreamId=" + consensusModuleSnapshotStreamId +
+                "\n    serviceSnapshotStreamId=" + serviceSnapshotStreamId +
+                "\n    logStreamId=" + logStreamId +
+                "\n    catchupEndpoint='" + catchupEndpoint + '\'' +
+                "\n    catchupChannel='" + catchupChannel + '\'' +
+                "\n    clusterBackupIntervalNs=" + clusterBackupIntervalNs +
+                "\n    clusterBackupResponseTimeoutNs=" + clusterBackupResponseTimeoutNs +
+                "\n    clusterBackupProgressTimeoutNs=" + clusterBackupProgressTimeoutNs +
+                "\n    clusterBackupCoolDownIntervalNs=" + clusterBackupCoolDownIntervalNs +
+                "\n    errorBufferLength=" + errorBufferLength +
+                "\n    deleteDirOnStart=" + deleteDirOnStart +
+                "\n    useAgentInvoker=" + useAgentInvoker +
+                "\n    clusterDirectoryName='" + clusterDirectoryName + '\'' +
+                "\n    clusterDir=" + clusterDir +
+                "\n    markFile=" + markFile +
+                "\n    clusterConsensusEndpoints='" + clusterConsensusEndpoints + '\'' +
+                "\n    threadFactory=" + threadFactory +
+                "\n    epochClock=" + epochClock +
+                "\n    idleStrategySupplier=" + idleStrategySupplier +
+                "\n    errorLog=" + errorLog +
+                "\n    errorHandler=" + errorHandler +
+                "\n    errorCounter=" + errorCounter +
+                "\n    countedErrorHandler=" + countedErrorHandler +
+                "\n    stateCounter=" + stateCounter +
+                "\n    liveLogPositionCounter=" + liveLogPositionCounter +
+                "\n    nextQueryDeadlineMsCounter=" + nextQueryDeadlineMsCounter +
+                "\n    archiveContext=" + archiveContext +
+                "\n    clusterArchiveContext=" + clusterArchiveContext +
+                "\n    shutdownSignalBarrier=" + shutdownSignalBarrier +
+                "\n    terminationHook=" + terminationHook +
+                "\n    eventsListener=" + eventsListener +
+                '}';
         }
 
         private void concludeMarkFile()

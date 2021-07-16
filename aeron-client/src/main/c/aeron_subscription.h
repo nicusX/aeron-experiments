@@ -50,7 +50,7 @@ typedef struct aeron_subscription_stct
 
     int64_t *channel_status_indicator;
 
-    int64_t last_image_list_change_number;
+    volatile int64_t last_image_list_change_number;
 
     aeron_on_available_image_t on_available_image;
     void *on_available_image_clientd;
@@ -64,7 +64,7 @@ typedef struct aeron_subscription_stct
     int32_t channel_status_indicator_id;
     size_t round_robin_index;
 
-    bool is_closed;
+    volatile bool is_closed;
     uint8_t post_fields_padding[AERON_CACHE_LINE_LENGTH];
 }
 aeron_subscription_t;
@@ -102,7 +102,7 @@ int aeron_client_conductor_subscription_prune_image_lists(aeron_subscription_t *
 
 inline int aeron_subscription_find_image_index(volatile aeron_image_list_t *image_list, aeron_image_t *image)
 {
-    size_t length = (NULL == image_list) ? 0 : image_list->length;
+    size_t length = NULL == image_list ? 0 : image_list->length;
 
     for (size_t i = 0; i < length; i++)
     {

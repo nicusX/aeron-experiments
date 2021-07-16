@@ -122,9 +122,10 @@ public final class PublicationImage
 
     private long lastSmChangeNumber = Aeron.NULL_VALUE;
     private long lastSmPosition;
-    private long lastSmWindowLimit;
+    private long lastOverrunThreshold;
     private long timeOfLastSmNs;
     private final long smTimeoutNs;
+    private final long maxReceiverWindowLength;
 
     private volatile long beginLossChange = Aeron.NULL_VALUE;
     private volatile long endLossChange = Aeron.NULL_VALUE;
@@ -234,11 +235,12 @@ public final class PublicationImage
         termLengthMask = termLength - 1;
         positionBitsToShift = LogBufferDescriptor.positionBitsToShift(termLength);
 
+        nextSmReceiverWindowLength = congestionControl.initialWindowLength();
+        maxReceiverWindowLength = congestionControl.maxWindowLength();
         final long position = computePosition(activeTermId, initialTermOffset, positionBitsToShift, initialTermId);
         nextSmPosition = position;
-        nextSmReceiverWindowLength = congestionControl.initialWindowLength();
         lastSmPosition = position;
-        lastSmWindowLimit = position + nextSmReceiverWindowLength;
+        lastOverrunThreshold = position + nextSmReceiverWindowLength;
         cleanPosition = position;
 
         hwmPosition.setOrdered(position);
@@ -584,7 +586,7 @@ public final class PublicationImage
 
                 hwmPosition.proposeMaxOrdered(proposedPosition);
             }
-            else if (packetPosition >= (lastSmPosition - nextSmReceiverWindowLength))
+            else if (packetPosition >= (lastSmPosition - maxReceiverWindowLength))
             {
                 trackConnection(transportIndex, srcAddress, cachedNanoClock.nanoTime());
             }
@@ -635,7 +637,7 @@ public final class PublicationImage
                 statusMessagesSent.incrementOrdered();
 
                 lastSmPosition = smPosition;
-                lastSmWindowLimit = smPosition + receiverWindowLength;
+                lastOverrunThreshold = smPosition + maxReceiverWindowLength;
                 lastSmChangeNumber = changeNumber;
                 timeOfLastSmNs = nowNs;
 
@@ -821,7 +823,7 @@ public final class PublicationImage
 
     private boolean isFlowControlOverRun(final long proposedPosition)
     {
-        final boolean isFlowControlOverRun = proposedPosition > lastSmWindowLimit;
+        final boolean isFlowControlOverRun = proposedPosition > lastOverrunThreshold;
 
         if (isFlowControlOverRun)
         {

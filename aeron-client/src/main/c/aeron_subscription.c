@@ -524,6 +524,7 @@ int aeron_header_values(aeron_header_t *header, aeron_header_values_t *values)
 
     memcpy(&values->frame, header->frame, sizeof(aeron_header_values_frame_t));
     values->initial_term_id = header->initial_term_id;
+    values->position_bits_to_shift = header->position_bits_to_shift;
 
     return 0;
 }
@@ -535,6 +536,11 @@ int64_t aeron_header_position(aeron_header_t *header)
 
     return aeron_logbuffer_compute_position(
         header->frame->term_id, offset_at_end_of_frame, header->position_bits_to_shift, header->initial_term_id);
+}
+
+size_t aeron_header_position_bits_to_shift(aeron_header_t *header)
+{
+    return header->position_bits_to_shift;
 }
 
 int aeron_subscription_local_sockaddrs(
@@ -549,6 +555,7 @@ int aeron_subscription_local_sockaddrs(
             AERON_NULL_STR(address_vec));
         return -1;
     }
+
     if (address_vec_len < 1)
     {
         AERON_SET_ERR(
@@ -574,6 +581,7 @@ int aeron_subscription_resolved_endpoint(
             AERON_NULL_STR(address));
         return -1;
     }
+
     if (address_len < 1)
     {
         AERON_SET_ERR(
@@ -636,6 +644,7 @@ int aeron_subscription_try_resolve_channel_endpoint_port(
             AERON_NULL_STR(uri));
         return -1;
     }
+
     if (uri_len < 1)
     {
         AERON_SET_ERR(

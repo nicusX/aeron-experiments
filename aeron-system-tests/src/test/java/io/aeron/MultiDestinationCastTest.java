@@ -23,16 +23,21 @@ import io.aeron.logbuffer.Header;
 import io.aeron.logbuffer.LogBufferDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
 import io.aeron.test.CountingFragmentHandler;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
+import io.aeron.test.Tests;
 import io.aeron.test.driver.MediaDriverTestWatcher;
 import io.aeron.test.driver.TestMediaDriver;
-import io.aeron.test.Tests;
-import org.agrona.*;
+import org.agrona.CloseHelper;
+import org.agrona.DirectBuffer;
+import org.agrona.ErrorHandler;
+import org.agrona.IoUtil;
 import org.agrona.collections.MutableInteger;
 import org.agrona.collections.MutableLong;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.io.File;
@@ -46,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class MultiDestinationCastTest
 {
     private static final String PUB_MDC_DYNAMIC_URI = "aeron:udp?control=localhost:24325";
@@ -53,7 +59,7 @@ public class MultiDestinationCastTest
     private static final String SUB2_MDC_DYNAMIC_URI = "aeron:udp?control=localhost:24325|group=true";
     private static final String SUB3_MDC_DYNAMIC_URI = CommonContext.SPY_PREFIX + PUB_MDC_DYNAMIC_URI;
 
-    private static final String PUB_MDC_MANUAL_URI = "aeron:udp?control-mode=manual|tags=3,4";
+    private static final String PUB_MDC_MANUAL_URI = "aeron:udp?control-mode=manual";
     private static final String SUB1_MDC_MANUAL_URI = "aeron:udp?endpoint=localhost:24326|group=true";
     private static final String SUB2_MDC_MANUAL_URI = "aeron:udp?endpoint=localhost:24327|group=true";
     private static final String SUB3_MDC_MANUAL_URI = CommonContext.SPY_PREFIX + PUB_MDC_MANUAL_URI;
@@ -118,7 +124,7 @@ public class MultiDestinationCastTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldSpinUpAndShutdownWithDynamic()
     {
         launch(Tests::onError);
@@ -135,16 +141,21 @@ public class MultiDestinationCastTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldSpinUpAndShutdownWithManual()
     {
         launch(Tests::onError);
 
+        final String taggedMdcUri = new ChannelUriStringBuilder(PUB_MDC_MANUAL_URI).tags(
+            clientA.nextCorrelationId(),
+            clientA.nextCorrelationId()).build();
+        final String spySubscriptionUri = new ChannelUriStringBuilder(taggedMdcUri).prefix("aeron-spy").build();
+
         subscriptionA = clientA.addSubscription(SUB1_MDC_MANUAL_URI, STREAM_ID);
         subscriptionB = clientB.addSubscription(SUB2_MDC_MANUAL_URI, STREAM_ID);
-        subscriptionC = clientA.addSubscription(SUB3_MDC_MANUAL_URI, STREAM_ID);
+        subscriptionC = clientA.addSubscription(spySubscriptionUri, STREAM_ID);
 
-        publication = clientA.addPublication(PUB_MDC_MANUAL_URI, STREAM_ID);
+        publication = clientA.addPublication(taggedMdcUri, STREAM_ID);
         publication.addDestination(SUB1_MDC_MANUAL_URI);
         final long correlationId = publication.asyncAddDestination(SUB2_MDC_MANUAL_URI);
 
@@ -157,7 +168,7 @@ public class MultiDestinationCastTest
     }
 
     @Test
-    @Timeout(20)
+    @InterruptAfter(20)
     public void shouldSendToTwoPortsWithDynamic()
     {
         final int numMessagesToSend = MESSAGES_PER_TERM * 3;
@@ -192,7 +203,7 @@ public class MultiDestinationCastTest
     }
 
     @Test
-    @Timeout(20)
+    @InterruptAfter(20)
     public void shouldSendToTwoPortsWithDynamicSingleDriver()
     {
         final int numMessagesToSend = MESSAGES_PER_TERM * 3;
@@ -227,7 +238,7 @@ public class MultiDestinationCastTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldSendToTwoPortsWithManualSingleDriver()
     {
         final int numMessagesToSend = MESSAGES_PER_TERM * 3;
@@ -262,7 +273,7 @@ public class MultiDestinationCastTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void addDestinationWithSpySubscriptionsShouldFailWithRegistrationException()
     {
         final ErrorHandler mockErrorHandler = mock(ErrorHandler.class);
@@ -277,7 +288,7 @@ public class MultiDestinationCastTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldManuallyRemovePortDuringActiveStream() throws InterruptedException
     {
         final int numMessagesToSend = MESSAGES_PER_TERM * 3;
@@ -333,7 +344,7 @@ public class MultiDestinationCastTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldManuallyAddPortDuringActiveStream() throws InterruptedException
     {
         final int numMessagesToSend = MESSAGES_PER_TERM * 3;
@@ -369,7 +380,7 @@ public class MultiDestinationCastTest
             }
             else
             {
-                Tests.yieldingWait(positionSupplier);
+                Tests.yieldingIdle(positionSupplier);
             }
 
             subscriptionA.poll(fragmentHandlerA, FRAGMENT_LIMIT);
@@ -388,7 +399,7 @@ public class MultiDestinationCastTest
                 {
                     if (subscriptionA.poll(fragmentHandlerA, FRAGMENT_LIMIT) <= 0)
                     {
-                        Tests.yieldingWait(messageSupplierA);
+                        Tests.yieldingIdle(messageSupplierA);
                     }
                 }
 
@@ -402,13 +413,13 @@ public class MultiDestinationCastTest
             if (fragmentHandlerA.notDone(numMessagesToSend) &&
                 subscriptionA.poll(fragmentHandlerA, FRAGMENT_LIMIT) <= 0)
             {
-                Tests.yieldingWait(messageSupplierA);
+                Tests.yieldingIdle(messageSupplierA);
             }
 
             if (fragmentHandlerB.notDone(numMessageForSub2) &&
                 subscriptionB.poll(fragmentHandlerB, FRAGMENT_LIMIT) <= 0)
             {
-                Tests.yieldingWait(messageSupplierB);
+                Tests.yieldingIdle(messageSupplierB);
             }
         }
     }

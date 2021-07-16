@@ -94,11 +94,11 @@ public abstract class UdpChannelTransport implements AutoCloseable
     /**
      * Construct a transport for a given channel.
      *
-     * @param udpChannel      configuration for the media.
-     * @param endPointAddress to which data will be sent.
-     * @param bindAddress     for listening on.
-     * @param connectAddress  for sending data to.
-     * @param context         for configuration.
+     * @param udpChannel         configuration for the media.
+     * @param endPointAddress    to which data will be sent.
+     * @param bindAddress        for listening on.
+     * @param connectAddress     for sending data to.
+     * @param context            for configuration.
      * @param socketRcvbufLength set SO_RCVBUF for socket, 0 for OS default.
      * @param socketSndbufLength set SO_SNDBUF for socket, 0 for OS default.
      */
@@ -395,7 +395,7 @@ public abstract class UdpChannelTransport implements AutoCloseable
     }
 
     /**
-     * Receive packet hook that can be usef for logging.
+     * Receive packet hook that can be useful for logging.
      *
      * @param buffer  containing the packet.
      * @param length  length of the packet in bytes.

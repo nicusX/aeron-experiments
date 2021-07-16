@@ -363,7 +363,7 @@ public final class MediaDriver implements AutoCloseable
                 }
                 finally
                 {
-                    IoUtil.unmap(cncByteBuffer);
+                    BufferUtil.free(cncByteBuffer);
                 }
             }
 
@@ -563,10 +563,10 @@ public final class MediaDriver implements AutoCloseable
                     CloseHelper.quietClose((AutoCloseable)errorHandler);
                 }
 
-                IoUtil.unmap(lossReportBuffer);
+                BufferUtil.free(lossReportBuffer);
                 this.lossReportBuffer = null;
 
-                IoUtil.unmap(cncByteBuffer);
+                BufferUtil.free(cncByteBuffer);
                 this.cncByteBuffer = null;
 
                 if (dirDeleteOnShutdown)
@@ -638,7 +638,7 @@ public final class MediaDriver implements AutoCloseable
 
             if (printConfigurationOnStart)
             {
-                System.out.println(this.toString());
+                System.out.println(this);
             }
 
             return this;
@@ -2978,7 +2978,8 @@ public final class MediaDriver implements AutoCloseable
         /**
          * Get the bootstrap neighbor of the {@link MediaDriver} for name resolver purposes.
          *
-         * The format is hostname:port and follows the URI format for the endpoint parameter.
+         * The format is comma separated list of {@code hostname:port} pairs. and follows the URI format for the
+         * endpoint parameter.
          *
          * @return bootstrap neighbor of the {@link MediaDriver}.
          * @see Configuration#RESOLVER_BOOTSTRAP_NEIGHBOR_PROP_NAME
@@ -3227,7 +3228,7 @@ public final class MediaDriver implements AutoCloseable
             }
             catch (final IOException ex)
             {
-                throw new AeronException("probe socket: " + ex.toString(), ex);
+                throw new AeronException("probe socket: " + ex, ex);
             }
         }
 
@@ -3525,7 +3526,9 @@ public final class MediaDriver implements AutoCloseable
         @SuppressWarnings("MethodLength")
         public String toString()
         {
-            return "MediaDriver.Context{" +
+            return "MediaDriver.Context" +
+                "\n{" +
+                "\n    isConcluded=" + isConcluded() +
                 "\n    isClosed=" + isClosed +
                 "\n    cncVersion=" + SemanticVersion.toString(CNC_VERSION) +
                 "\n    aeronDirectoryName=" + aeronDirectoryName() +

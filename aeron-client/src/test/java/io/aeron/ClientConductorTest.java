@@ -22,13 +22,15 @@ import io.aeron.exceptions.RegistrationException;
 import io.aeron.exceptions.TimeoutException;
 import io.aeron.logbuffer.LogBufferDescriptor;
 import io.aeron.protocol.DataHeaderFlyweight;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
 import org.agrona.ErrorHandler;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.concurrent.*;
 import org.agrona.concurrent.broadcast.CopyBroadcastReceiver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
@@ -46,6 +48,7 @@ import static org.hamcrest.core.Is.is;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class ClientConductorTest
 {
     private static final int TERM_BUFFER_LENGTH = TERM_MIN_LENGTH;
@@ -79,14 +82,15 @@ public class ClientConductorTest
     private final ErrorResponseFlyweight errorResponse = new ErrorResponseFlyweight();
     private final ClientTimeoutFlyweight clientTimeout = new ClientTimeoutFlyweight();
 
-    private final UnsafeBuffer publicationReadyBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
-    private final UnsafeBuffer subscriptionReadyBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
-    private final UnsafeBuffer operationSuccessBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
-    private final UnsafeBuffer errorMessageBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
-    private final UnsafeBuffer clientTimeoutBuffer = new UnsafeBuffer(allocateDirect(SEND_BUFFER_CAPACITY));
+    private final UnsafeBuffer publicationReadyBuffer = new UnsafeBuffer(new byte[SEND_BUFFER_CAPACITY]);
+    private final UnsafeBuffer subscriptionReadyBuffer = new UnsafeBuffer(new byte[SEND_BUFFER_CAPACITY]);
+    private final UnsafeBuffer operationSuccessBuffer = new UnsafeBuffer(new byte[SEND_BUFFER_CAPACITY]);
+    private final UnsafeBuffer errorMessageBuffer = new UnsafeBuffer(new byte[SEND_BUFFER_CAPACITY]);
+    private final UnsafeBuffer clientTimeoutBuffer = new UnsafeBuffer(new byte[SEND_BUFFER_CAPACITY]);
 
     private final CopyBroadcastReceiver mockToClientReceiver = mock(CopyBroadcastReceiver.class);
-    private final UnsafeBuffer counterValuesBuffer = new UnsafeBuffer(allocateDirect(COUNTER_BUFFER_LENGTH));
+    private final UnsafeBuffer counterValuesBuffer = new UnsafeBuffer(new byte[COUNTER_BUFFER_LENGTH]);
+    private final UnsafeBuffer counterMetaDataBuffer = new UnsafeBuffer(new byte[COUNTER_BUFFER_LENGTH]);
 
     private long timeMs = 0;
     private final EpochClock epochClock = () -> timeMs += 10;
@@ -125,6 +129,7 @@ public class ClientConductorTest
             .driverTimeoutMs(AWAIT_TIMEOUT)
             .interServiceTimeoutNs(TimeUnit.MILLISECONDS.toNanos(INTER_SERVICE_TIMEOUT_MS));
 
+        ctx.countersMetaDataBuffer(counterMetaDataBuffer);
         ctx.countersValuesBuffer(counterValuesBuffer);
 
         when(mockClientLock.tryLock()).thenReturn(TRUE);
@@ -217,7 +222,7 @@ public class ClientConductorTest
     }
 
     @Test
-    @Timeout(5)
+    @InterruptAfter(5)
     public void addPublicationShouldTimeoutWithoutReadyMessage()
     {
         assertThrows(DriverTimeoutException.class, () -> conductor.addPublication(CHANNEL, STREAM_ID_1));
@@ -394,7 +399,7 @@ public class ClientConductorTest
     }
 
     @Test
-    @Timeout(5)
+    @InterruptAfter(5)
     public void addSubscriptionShouldTimeoutWithoutOperationSuccessful()
     {
         assertThrows(DriverTimeoutException.class, () -> conductor.addSubscription(CHANNEL, STREAM_ID_1));

@@ -19,7 +19,8 @@ import io.aeron.*;
 import io.aeron.cluster.client.ClusterException;
 import io.aeron.cluster.codecs.CloseReason;
 import io.aeron.cluster.codecs.EventCode;
-import io.aeron.driver.exceptions.InvalidChannelException;
+import io.aeron.exceptions.AeronException;
+import io.aeron.exceptions.RegistrationException;
 import io.aeron.logbuffer.BufferClaim;
 import org.agrona.*;
 import org.agrona.collections.ArrayUtil;
@@ -34,7 +35,7 @@ final class ClusterSession
 
     enum State
     {
-        INIT, CONNECTED, CHALLENGED, AUTHENTICATED, REJECTED, OPEN, CLOSING, CLOSED
+        INIT, CONNECTING, CONNECTED, CHALLENGED, AUTHENTICATED, REJECTED, OPEN, CLOSING, INVALID, CLOSED
     }
 
     private boolean hasNewLeaderEventPending = false;
@@ -45,6 +46,7 @@ final class ClusterSession
     private long openedLogPosition = Aeron.NULL_VALUE;
     private long closedLogPosition = Aeron.NULL_VALUE;
     private long timeOfLastActivityNs;
+    private long responsePublicationId = Aeron.NULL_VALUE;
     private final int responseStreamId;
     private final String responseChannel;
     private Publication responsePublication;
@@ -92,7 +94,7 @@ final class ClusterSession
     public void close(final ErrorHandler errorHandler)
     {
         CloseHelper.close(errorHandler, responsePublication);
-        this.responsePublication = null;
+        responsePublication = null;
         state(State.CLOSED);
     }
 
@@ -125,7 +127,12 @@ final class ClusterSession
         return closeReason;
     }
 
-    void connect(final Aeron aeron)
+    void asyncConnect(final Aeron aeron)
+    {
+        responsePublicationId = aeron.asyncAddPublication(responseChannel, responseStreamId);
+    }
+
+    void connect(final ErrorHandler errorHandler, final Aeron aeron)
     {
         if (null != responsePublication)
         {
@@ -136,8 +143,10 @@ final class ClusterSession
         {
             responsePublication = aeron.addPublication(responseChannel, responseStreamId);
         }
-        catch (final InvalidChannelException ignore)
+        catch (final RegistrationException ex)
         {
+            errorHandler.onError(new ClusterException(
+                "failed to connect session response publication: " + ex.getMessage(), AeronException.Category.WARN));
         }
     }
 
@@ -147,8 +156,25 @@ final class ClusterSession
         responsePublication = null;
     }
 
-    boolean isResponsePublicationConnected()
+    boolean isResponsePublicationConnected(final Aeron aeron, final long nowNs)
     {
+        if (null == responsePublication)
+        {
+            responsePublication = aeron.getPublication(responsePublicationId);
+
+            if (null != responsePublication)
+            {
+                responsePublicationId = Aeron.NULL_VALUE;
+                timeOfLastActivityNs = nowNs;
+                state(State.CONNECTING);
+            }
+            else if (!aeron.isCommandActive(responsePublicationId))
+            {
+                responsePublicationId = Aeron.NULL_VALUE;
+                state(State.INVALID);
+            }
+        }
+
         return null != responsePublication && responsePublication.isConnected();
     }
 
@@ -277,9 +303,9 @@ final class ClusterSession
         return hasOpenEventPending;
     }
 
-    void hasOpenEventPending(final boolean flag)
+    void clearOpenEventPending()
     {
-        hasOpenEventPending = flag;
+        hasOpenEventPending = false;
     }
 
     boolean isBackupSession()
@@ -302,10 +328,8 @@ final class ClusterSession
         if (null != encodedPrincipal && encodedPrincipal.length > MAX_ENCODED_PRINCIPAL_LENGTH)
         {
             throw new ClusterException(
-                "encoded principal max length " +
-                MAX_ENCODED_PRINCIPAL_LENGTH +
-                " exceeded: length=" +
-                encodedPrincipal.length);
+                "encoded principal max length " + MAX_ENCODED_PRINCIPAL_LENGTH +
+                " exceeded: length=" + encodedPrincipal.length);
         }
     }
 
@@ -319,6 +343,7 @@ final class ClusterSession
             ", timeOfLastActivityNs=" + timeOfLastActivityNs +
             ", responseStreamId=" + responseStreamId +
             ", responseChannel='" + responseChannel + '\'' +
+            ", responsePublicationId=" + responsePublicationId +
             ", closeReason=" + closeReason +
             ", state=" + state +
             ", hasNewLeaderEventPending=" + hasNewLeaderEventPending +

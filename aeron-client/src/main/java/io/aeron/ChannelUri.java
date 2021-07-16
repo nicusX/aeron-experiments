@@ -585,4 +585,39 @@ public final class ChannelUri
 
         return count;
     }
+
+    Map<String, String> diff(final ChannelUri that)
+    {
+        final HashMap<String, String> differingValues = new HashMap<>();
+
+        if (!Objects.equals(prefix, that.prefix))
+        {
+            differingValues.put("prefix", prefix + " != " + that.prefix);
+        }
+
+        if (!Objects.equals(media, that.media))
+        {
+            differingValues.put("media", media + " != " + that.media);
+        }
+
+        if (!Objects.equals(params, that.params))
+        {
+            params.forEach(
+                (key, value) ->
+                {
+                    final String thatValue = that.params.get(key);
+                    if (!Objects.equals(value, thatValue))
+                    {
+                        differingValues.put(key, value + " != " + thatValue);
+                    }
+                });
+        }
+
+        if (!Arrays.equals(tags, that.tags))
+        {
+            differingValues.put(TAGS_PARAM_NAME, Arrays.toString(tags) + " != " + Arrays.toString(that.tags));
+        }
+
+        return differingValues;
+    }
 }

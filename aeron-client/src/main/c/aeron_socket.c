@@ -15,6 +15,7 @@
  */
 
 #include "aeron_socket.h"
+#include "util/aeron_error.h"
 
 #if defined(AERON_COMPILER_GCC)
 
@@ -22,8 +23,9 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
-void aeron_net_init()
+int aeron_net_init()
 {
+    return 0;
 }
 
 int set_socket_non_blocking(aeron_socket_t fd)
@@ -59,27 +61,37 @@ void aeron_close_socket(aeron_socket_t socket)
 #error Unsupported windows version
 #endif
 
-void aeron_net_init()
+#include <ws2ipdef.h>
+#include <iphlpapi.h>
+#include <stdio.h>
+
+int aeron_net_init()
 {
     static int started = -1;
-    if (started == -1)
+
+    if (-1 == started)
     {
-        const WORD wVersionRequested = MAKEWORD(2, 2);
-        WSADATA buffer;
-        if (WSAStartup(wVersionRequested, &buffer))
+        WORD wVersionRequested = MAKEWORD(2, 2);
+        WSADATA buffer = { 0 };
+        int err = WSAStartup(wVersionRequested, &buffer);
+
+        if (0 != err)
         {
-            return;
+            AERON_SET_ERR(err, "WSAStartup error=%d\n", err);
+            return -1;
         }
 
         started = 0;
     }
+
+    return 0;
 }
 
 int set_socket_non_blocking(aeron_socket_t fd)
 {
     u_long iMode = 1;
     int iResult = ioctlsocket(fd, FIONBIO, &iMode);
-    if (iResult != NO_ERROR)
+    if (NO_ERROR != iResult)
     {
         return -1;
     }
@@ -90,7 +102,8 @@ int set_socket_non_blocking(aeron_socket_t fd)
 int getifaddrs(struct ifaddrs **ifap)
 {
     DWORD MAX_TRIES = 2;
-    DWORD dwSize = 10 * sizeof(IP_ADAPTER_ADDRESSES), dwRet;
+    DWORD dwSize = 10 * sizeof(IP_ADAPTER_ADDRESSES);
+    DWORD dwRet;
     IP_ADAPTER_ADDRESSES *pAdapterAddresses = NULL;
 
     /* loop to handle interfaces coming online causing a buffer overflow
@@ -98,13 +111,14 @@ int getifaddrs(struct ifaddrs **ifap)
      */
     for (unsigned i = MAX_TRIES; i; i--)
     {
-        pAdapterAddresses = (IP_ADAPTER_ADDRESSES*)malloc(dwSize);
-        dwRet = GetAdaptersAddresses(AF_UNSPEC,
+        pAdapterAddresses = (IP_ADAPTER_ADDRESSES *)malloc(dwSize);
+        dwRet = GetAdaptersAddresses(
+            AF_UNSPEC,
             GAA_FLAG_INCLUDE_PREFIX |
-            GAA_FLAG_SKIP_ANYCAST |
-            GAA_FLAG_SKIP_DNS_SERVER |
-            GAA_FLAG_SKIP_FRIENDLY_NAME |
-            GAA_FLAG_SKIP_MULTICAST,
+                GAA_FLAG_SKIP_ANYCAST |
+                GAA_FLAG_SKIP_DNS_SERVER |
+                GAA_FLAG_SKIP_FRIENDLY_NAME |
+                GAA_FLAG_SKIP_MULTICAST,
             NULL,
             pAdapterAddresses,
             &dwSize);
@@ -130,11 +144,11 @@ int getifaddrs(struct ifaddrs **ifap)
         return -1;
     }
 
-    struct ifaddrs* ifa = malloc(sizeof(struct ifaddrs));
-    struct ifaddrs* ift = NULL;
+    struct ifaddrs *ifa = malloc(sizeof(struct ifaddrs));
+    struct ifaddrs *ift = NULL;
 
     /* now populate list */
-    for (IP_ADAPTER_ADDRESSES* adapter = pAdapterAddresses; adapter; adapter = adapter->Next)
+    for (IP_ADAPTER_ADDRESSES *adapter = pAdapterAddresses; adapter; adapter = adapter->Next)
     {
         int unicastIndex = 0;
         for (IP_ADAPTER_UNICAST_ADDRESS *unicast = adapter->FirstUnicastAddress;
@@ -149,7 +163,7 @@ int getifaddrs(struct ifaddrs **ifap)
             }
 
             /* Next */
-            if (ift == NULL)
+            if (NULL == ift)
             {
                 ift = ifa;
             }
@@ -202,7 +216,7 @@ int getifaddrs(struct ifaddrs **ifap)
 
                     ULONG Mask;
                     ConvertLengthToIpv4Mask(prefixLength, &Mask);
-                    ((struct sockaddr_in*)ift->ifa_netmask)->sin_addr.s_addr = htonl(Mask);
+                    ((struct sockaddr_in *)ift->ifa_netmask)->sin_addr.s_addr = htonl(Mask);
                     break;
 
                 case AF_INET6:
@@ -211,9 +225,9 @@ int getifaddrs(struct ifaddrs **ifap)
                         prefixLength = 128;
                     }
 
-                    for (LONG i = prefixLength, j = 0; i > 0; i -= 8, ++j)
+                    for (LONG i = (LONG)prefixLength, j = 0; i > 0; i -= 8, ++j)
                     {
-                        ((struct sockaddr_in6*)ift->ifa_netmask)->sin6_addr.s6_addr[j] = i >= 8 ?
+                        ((struct sockaddr_in6 *)ift->ifa_netmask)->sin6_addr.s6_addr[j] = i >= 8 ?
                             0xff : (ULONG)((0xffU << (8 - i)) & 0xffU);
                     }
                     break;
@@ -252,10 +266,6 @@ void freeifaddrs(struct ifaddrs *current)
     }
 }
 
-#include <ws2ipdef.h>
-#include <iphlpapi.h>
-#include <stdio.h>
-
 ssize_t recvmsg(aeron_socket_t fd, struct msghdr *msghdr, int flags)
 {
     DWORD size = 0;
@@ -270,10 +280,10 @@ ssize_t recvmsg(aeron_socket_t fd, struct msghdr *msghdr, int flags)
         NULL,
         NULL);
 
-    if (result == SOCKET_ERROR)
+    if (SOCKET_ERROR == result)
     {
-        const int error = WSAGetLastError();
-        if (error == WSAEWOULDBLOCK)
+        const int err = WSAGetLastError();
+        if (WSAEWOULDBLOCK == err || WSAECONNRESET == err)
         {
             return 0;
         }
@@ -293,15 +303,15 @@ ssize_t sendmsg(aeron_socket_t fd, struct msghdr *msghdr, int flags)
         msghdr->msg_iovlen,
         &size,
         msghdr->msg_flags,
-        (const struct sockaddr*)msghdr->msg_name,
+        (const struct sockaddr *)msghdr->msg_name,
         msghdr->msg_namelen,
         NULL,
         NULL);
 
-    if (result == SOCKET_ERROR)
+    if (SOCKET_ERROR == result)
     {
-        const int error = WSAGetLastError();
-        if (error == WSAEWOULDBLOCK)
+        const int err = WSAGetLastError();
+        if (WSAEWOULDBLOCK == err)
         {
             return 0;
         }
@@ -321,7 +331,8 @@ aeron_socket_t aeron_socket(int domain, int type, int protocol)
 {
     aeron_net_init();
     const SOCKET handle = socket(domain, type, protocol);
-    return handle != INVALID_SOCKET ? handle : -1;
+
+    return (aeron_socket_t)(INVALID_SOCKET != handle ? handle : -1);
 }
 
 void aeron_close_socket(aeron_socket_t socket)

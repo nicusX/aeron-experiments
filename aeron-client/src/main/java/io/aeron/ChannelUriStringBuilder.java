@@ -58,7 +58,7 @@ public final class ChannelUriStringBuilder
     private Integer initialTermId;
     private Integer termId;
     private Integer termOffset;
-    private Integer sessionId;
+    private Long sessionId;
     private Long groupTag;
     private Long linger;
     private Boolean sparse;
@@ -71,6 +71,64 @@ public final class ChannelUriStringBuilder
     private Integer socketSndbufLength;
     private Integer socketRcvbufLength;
     private Integer receiverWindowLength;
+
+    /**
+     * Default constructor
+     */
+    public ChannelUriStringBuilder()
+    {
+    }
+
+    /**
+     * Constructs the ChannelUriStringBuilder with the initial values derived from the supplied URI. Will parse the
+     * incoming URI during this process, so could through an exception at this point of the URI is badly formed.
+     *
+     * @param initialUri initial values for the builder.
+     */
+    public ChannelUriStringBuilder(final String initialUri)
+    {
+        this(ChannelUri.parse(initialUri));
+    }
+
+    /**
+     * Constructs the ChannelUriStringBuilder with the initial values derived from the supplied ChannelUri.
+     *
+     * @param channelUri initial values for the builder.
+     */
+    public ChannelUriStringBuilder(final ChannelUri channelUri)
+    {
+        isSessionIdTagged = false;
+
+        prefix(channelUri);
+        media(channelUri);
+        endpoint(channelUri);
+        networkInterface(channelUri);
+        controlEndpoint(channelUri);
+        controlMode(channelUri);
+        tags(channelUri);
+        alias(channelUri);
+        congestionControl(channelUri);
+        flowControl(channelUri);
+        reliable(channelUri);
+        ttl(channelUri);
+        mtu(channelUri);
+        termLength(channelUri);
+        initialTermId(channelUri);
+        termId(channelUri);
+        termOffset(channelUri);
+        sessionId(channelUri);
+        group(channelUri);
+        linger(channelUri);
+        sparse(channelUri);
+        eos(channelUri);
+        tether(channelUri);
+        groupTag(channelUri);
+        rejoin(channelUri);
+        spiesSimulateConnection(channelUri);
+        socketRcvbufLength(channelUri);
+        socketSndbufLength(channelUri);
+        receiverWindowLength(channelUri);
+    }
 
     /**
      * Clear out all the values thus setting back to the initial state.
@@ -600,7 +658,7 @@ public final class ChannelUriStringBuilder
             if (value > Integer.MAX_VALUE)
             {
                 throw new IllegalStateException(
-                    "Term length more than max length of " + TERM_MAX_LENGTH + ": length=" + termLength);
+                    "term length more than max length of " + TERM_MAX_LENGTH + ": value=" + value);
             }
 
             return termLength((int)value);
@@ -777,6 +835,50 @@ public final class ChannelUriStringBuilder
      */
     public ChannelUriStringBuilder sessionId(final Integer sessionId)
     {
+        this.sessionId = null != sessionId ? sessionId.longValue() : null;
+        return this;
+    }
+
+    /**
+     * Set the session id for a publication or restricted subscription from a formatted string.  Supports a format of
+     * either a string encoded signed 32 bit number or 'tag:' followed by a signed 64 bit value.
+     *
+     * @param sessionIdStr for the publication or a restricted subscription.
+     * @return this for a fluent API.
+     * @see CommonContext#SESSION_ID_PARAM_NAME
+     */
+    public ChannelUriStringBuilder sessionId(final String sessionIdStr)
+    {
+        if (null != sessionIdStr)
+        {
+            if (ChannelUri.isTagged(sessionIdStr))
+            {
+                taggedSessionId(ChannelUri.getTag(sessionIdStr));
+            }
+            else
+            {
+                isSessionIdTagged(false);
+                sessionId(Integer.valueOf(sessionIdStr));
+            }
+        }
+        else
+        {
+            sessionId((Integer)null);
+        }
+
+        return this;
+    }
+
+    /**
+     * Set the session id for a publication or restricted subscription as a tag referenced value.
+     *
+     * @param sessionId for the publication or a restricted subscription.
+     * @return this for a fluent API.
+     * @see CommonContext#SESSION_ID_PARAM_NAME
+     */
+    public ChannelUriStringBuilder taggedSessionId(final Long sessionId)
+    {
+        isSessionIdTagged(true);
         this.sessionId = sessionId;
         return this;
     }
@@ -790,16 +892,7 @@ public final class ChannelUriStringBuilder
      */
     public ChannelUriStringBuilder sessionId(final ChannelUri channelUri)
     {
-        final String sessionIdValue = channelUri.get(SESSION_ID_PARAM_NAME);
-        if (null == sessionIdValue)
-        {
-            sessionId = null;
-            return this;
-        }
-        else
-        {
-            return sessionId(Integer.valueOf(sessionIdValue));
-        }
+        return sessionId(channelUri.get(SESSION_ID_PARAM_NAME));
     }
 
     /**
@@ -807,10 +900,14 @@ public final class ChannelUriStringBuilder
      *
      * @return the session id for a publication or restricted subscription.
      * @see CommonContext#SESSION_ID_PARAM_NAME
+     * @deprecated this method will not correctly handle tagged sessionId values that are outside the range of
+     * a signed 32 bit number.  If this is called and a tagged value outside this range is currently held in this
+     * object, then the result will be the same as {@link Long#intValue()}.
      */
+    @Deprecated
     public Integer sessionId()
     {
-        return sessionId;
+        return null != sessionId ? sessionId.intValue() : null;
     }
 
     /**
@@ -1078,6 +1175,31 @@ public final class ChannelUriStringBuilder
     }
 
     /**
+     * Set the tags to the specified channel and publication/subscription tag {@link ChannelUri}. The
+     * publication/subscription may be null. If channel tag is null, then the pubSubTag must be null.
+     *
+     * @param channelTag optional value for the channel tag.
+     * @param pubSubTag  option value for the publication/subscription tag.
+     * @return this for a fluent API.
+     * @throws IllegalArgumentException if channelTag is null and pubSubTag is not.
+     * @see CommonContext#TAGS_PARAM_NAME
+     */
+    public ChannelUriStringBuilder tags(final Long channelTag, final Long pubSubTag)
+    {
+        if (null == channelTag && null != pubSubTag)
+        {
+            throw new IllegalArgumentException("null == channelTag && null != pubSubTag");
+        }
+
+        if (null == channelTag)
+        {
+            return tags((String)null);
+        }
+
+        return tags(channelTag + (null != pubSubTag ? "," + pubSubTag : ""));
+    }
+
+    /**
      * Get the tags for a channel used by a publication or subscription. Tags can be used to identify or tag a
      * channel so that a configuration can be referenced and reused.
      *
@@ -1105,7 +1227,7 @@ public final class ChannelUriStringBuilder
     }
 
     /**
-     * Is the value for {@link #sessionId()} a tagged.
+     * Is the value for {@link #sessionId()} a tag.
      *
      * @return whether the value for {@link #sessionId()} a tag reference or not.
      * @see CommonContext#TAGS_PARAM_NAME
@@ -1469,9 +1591,22 @@ public final class ChannelUriStringBuilder
      */
     public ChannelUriStringBuilder socketSndbufLength(final ChannelUri channelUri)
     {
-        final String socketSndbufLengthString = channelUri.get(SOCKET_SNDBUF_PARAM_NAME);
-        this.socketSndbufLength = null == socketSndbufLengthString ? null : Integer.valueOf(socketSndbufLengthString);
-        return this;
+        final String valueStr = channelUri.get(SOCKET_SNDBUF_PARAM_NAME);
+        if (null == valueStr)
+        {
+            this.socketSndbufLength = null;
+            return this;
+        }
+        else
+        {
+            final long value = parseSize(SOCKET_SNDBUF_PARAM_NAME, valueStr);
+            if (value > Integer.MAX_VALUE)
+            {
+                throw new IllegalStateException("value exceeds maximum permitted: value=" + value);
+            }
+
+            return socketSndbufLength((int)value);
+        }
     }
 
     /**
@@ -1484,7 +1619,6 @@ public final class ChannelUriStringBuilder
     {
         return socketSndbufLength;
     }
-
 
     /**
      * Set the underlying OS receive buffer length.
@@ -1509,9 +1643,22 @@ public final class ChannelUriStringBuilder
      */
     public ChannelUriStringBuilder socketRcvbufLength(final ChannelUri channelUri)
     {
-        final String socketRcvbufLengthString = channelUri.get(SOCKET_RCVBUF_PARAM_NAME);
-        this.socketRcvbufLength = null == socketRcvbufLengthString ? null : Integer.valueOf(socketRcvbufLengthString);
-        return this;
+        final String valueStr = channelUri.get(SOCKET_RCVBUF_PARAM_NAME);
+        if (null == valueStr)
+        {
+            this.socketRcvbufLength = null;
+            return this;
+        }
+        else
+        {
+            final long value = parseSize(SOCKET_RCVBUF_PARAM_NAME, valueStr);
+            if (value > Integer.MAX_VALUE)
+            {
+                throw new IllegalStateException("value exceeds maximum permitted: value=" + value);
+            }
+
+            return socketRcvbufLength((int)value);
+        }
     }
 
     /**
@@ -1548,14 +1695,27 @@ public final class ChannelUriStringBuilder
      */
     public ChannelUriStringBuilder receiverWindowLength(final ChannelUri channelUri)
     {
-        final String receiverWindowLengthString = channelUri.get(RECEIVER_WINDOW_LENGTH_PARAM_NAME);
-        this.receiverWindowLength = null == receiverWindowLengthString ?
-            null : Integer.valueOf(receiverWindowLengthString);
-        return this;
+        final String valueStr = channelUri.get(RECEIVER_WINDOW_LENGTH_PARAM_NAME);
+        if (null == valueStr)
+        {
+            this.receiverWindowLength = null;
+            return this;
+        }
+        else
+        {
+            final long value = parseSize(RECEIVER_WINDOW_LENGTH_PARAM_NAME, valueStr);
+            if (value > Integer.MAX_VALUE)
+            {
+                throw new IllegalStateException("value exceeds maximum permitted: value=" + value);
+            }
+
+            return receiverWindowLength((int)value);
+        }
     }
 
     /**
      * Get the receiver window length to be used as the initial receiver window for congestion control.
+     *
      * @return receiver window length
      * @see CommonContext#SOCKET_RCVBUF_PARAM_NAME
      */
@@ -1733,7 +1893,7 @@ public final class ChannelUriStringBuilder
         return build();
     }
 
-    private static String prefixTag(final boolean isTagged, final Integer value)
+    private static String prefixTag(final boolean isTagged, final Long value)
     {
         return isTagged ? TAG_PREFIX + value : value.toString();
     }

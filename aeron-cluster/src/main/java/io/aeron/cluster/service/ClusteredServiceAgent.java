@@ -73,7 +73,7 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
         new byte[Configuration.MAX_UDP_PAYLOAD_LENGTH - DataHeaderFlyweight.HEADER_LENGTH]);
     private final DirectBufferVector headerVector = new DirectBufferVector(headerBuffer, 0, SESSION_HEADER_LENGTH);
     private final SessionMessageHeaderEncoder sessionMessageHeaderEncoder = new SessionMessageHeaderEncoder();
-    private final Long2ObjectHashMap<ClientSession> sessionByIdMap = new Long2ObjectHashMap<>();
+    private final Long2ObjectHashMap<ContainerClientSession> sessionByIdMap = new Long2ObjectHashMap<>();
     private final Collection<ClientSession> unmodifiableClientSessions =
         new UnmodifiableClientSessionCollection(sessionByIdMap.values());
     private final BoundedLogAdapter logAdapter;
@@ -137,7 +137,7 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
 
             if (!ctx.ownsAeronClient() && !aeron.isClosed())
             {
-                for (final ClientSession session : sessionByIdMap.values())
+                for (final ContainerClientSession session : sessionByIdMap.values())
                 {
                     session.disconnect(errorHandler);
                 }
@@ -156,21 +156,29 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
     {
         int workCount = 0;
 
-        if (checkForClockTick())
+        try
         {
-            pollServiceAdapter();
-            workCount += 1;
-        }
-
-        if (null != logAdapter.image())
-        {
-            final int polled = logAdapter.poll(commitPosition.get());
-            workCount += polled;
-
-            if (0 == polled && logAdapter.isDone())
+            if (checkForClockTick())
             {
-                closeLog();
+                pollServiceAdapter();
+                workCount += 1;
             }
+
+            if (null != logAdapter.image())
+            {
+                final int polled = logAdapter.poll(commitPosition.get());
+                workCount += polled;
+
+                if (0 == polled && logAdapter.isDone())
+                {
+                    closeLog();
+                }
+            }
+        }
+        catch (final AgentTerminationException ex)
+        {
+            runTerminationHook();
+            throw ex;
         }
 
         return workCount;
@@ -220,7 +228,7 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
     {
         checkForLifecycleCallback();
 
-        final ClientSession clientSession = sessionByIdMap.get(clusterSessionId);
+        final ContainerClientSession clientSession = sessionByIdMap.get(clusterSessionId);
         if (clientSession == null)
         {
             throw new ClusterException("unknown clusterSessionId: " + clusterSessionId);
@@ -395,7 +403,7 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
                 " leadershipTermId=" + leadershipTermId + " logPosition=" + logPosition);
         }
 
-        final ClientSession session = new ClientSession(
+        final ContainerClientSession session = new ContainerClientSession(
             clusterSessionId, responseStreamId, responseChannel, encodedPrincipal, this);
 
         if (Role.LEADER == role && ctx.isRespondingService())
@@ -416,7 +424,7 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
     {
         this.logPosition = logPosition;
         clusterTime = timestamp;
-        final ClientSession session = sessionByIdMap.remove(clusterSessionId);
+        final ContainerClientSession session = sessionByIdMap.remove(clusterSessionId);
 
         if (null == session)
         {
@@ -452,7 +460,7 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
             ctx.errorHandler().onError(new ClusterException(
                 "incompatible version: " + SemanticVersion.toString(ctx.appVersion()) +
                 " log=" + SemanticVersion.toString(appVersion)));
-            terminateAgent();
+            throw new AgentTerminationException();
         }
         else
         {
@@ -491,7 +499,7 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
         final String responseChannel,
         final byte[] encodedPrincipal)
     {
-        sessionByIdMap.put(clusterSessionId, new ClientSession(
+        sessionByIdMap.put(clusterSessionId, new ContainerClientSession(
             clusterSessionId, responseStreamId, responseChannel, encodedPrincipal, this));
     }
 
@@ -663,7 +671,7 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
     {
         if (Role.LEADER != activeLog.role)
         {
-            for (final ClientSession session : sessionByIdMap.values())
+            for (final ContainerClientSession session : sessionByIdMap.values())
             {
                 session.disconnect(ctx.countedErrorHandler());
             }
@@ -693,7 +701,7 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
 
         if (Role.LEADER == activeLog.role)
         {
-            for (final ClientSession session : sessionByIdMap.values())
+            for (final ContainerClientSession session : sessionByIdMap.values())
             {
                 if (ctx.isRespondingService() && !activeLog.isStartup)
                 {
@@ -968,20 +976,6 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
         }
 
         terminationPosition = NULL_VALUE;
-        terminateAgent();
-    }
-
-    private void terminateAgent()
-    {
-        try
-        {
-            ctx.terminationHook().run();
-        }
-        catch (final Throwable ex)
-        {
-            ctx.countedErrorHandler().onError(ex);
-        }
-
         throw new ClusterTerminationException();
     }
 
@@ -1009,6 +1003,18 @@ final class ClusteredServiceAgent implements Agent, Cluster, IdleStrategy
         catch (final InterruptedException ignore)
         {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private void runTerminationHook()
+    {
+        try
+        {
+            ctx.terminationHook().run();
+        }
+        catch (final Throwable t)
+        {
+            ctx.countedErrorHandler().onError(t);
         }
     }
 }

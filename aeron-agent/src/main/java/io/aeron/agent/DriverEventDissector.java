@@ -231,10 +231,10 @@ final class DriverEventDissector
         builder.append(": sessionId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_INT;
 
-        builder.append(", streamId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
+        builder.append(" streamId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_INT;
 
-        builder.append(", uri=");
+        builder.append(" channel=");
         buffer.getStringAscii(absoluteOffset, builder);
     }
 
@@ -247,10 +247,10 @@ final class DriverEventDissector
         builder.append(": streamId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_INT;
 
-        builder.append(", id=").append(buffer.getLong(absoluteOffset, LITTLE_ENDIAN));
+        builder.append(" id=").append(buffer.getLong(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_LONG;
 
-        builder.append(", uri=");
+        builder.append(" channel=");
         buffer.getStringAscii(absoluteOffset, builder);
     }
 
@@ -263,13 +263,13 @@ final class DriverEventDissector
         builder.append(": sessionId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_INT;
 
-        builder.append(", streamId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
+        builder.append(" streamId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_INT;
 
-        builder.append(", id=").append(buffer.getLong(absoluteOffset, LITTLE_ENDIAN));
+        builder.append(" id=").append(buffer.getLong(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_LONG;
 
-        builder.append(", uri=");
+        builder.append(" channel=");
         buffer.getStringAscii(absoluteOffset, builder);
     }
 
@@ -283,13 +283,13 @@ final class DriverEventDissector
         builder.append(": subscriptionId=").append(buffer.getLong(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_LONG;
 
-        builder.append(", streamId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
+        builder.append(" streamId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_INT;
 
-        builder.append(", sessionId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
+        builder.append(" sessionId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
         absoluteOffset += SIZE_OF_INT;
 
-        builder.append(", ");
+        builder.append(" ");
         buffer.getStringAscii(absoluteOffset, builder);
     }
 
@@ -301,6 +301,46 @@ final class DriverEventDissector
 
         builder.append(": ");
         dissectSocketAddress(buffer, absoluteOffset, builder);
+    }
+
+    static void dissectFlowControlReceiver(
+        final DriverEventCode code, final MutableDirectBuffer buffer, final int offset, final StringBuilder builder)
+    {
+        int absoluteOffset = offset;
+        absoluteOffset += dissectLogHeader(CONTEXT, code, buffer, absoluteOffset, builder);
+
+        builder.append(": receiverCount=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
+        absoluteOffset += SIZE_OF_INT;
+
+        builder.append(" receiverId=").append(buffer.getLong(absoluteOffset, LITTLE_ENDIAN));
+        absoluteOffset += SIZE_OF_LONG;
+
+        builder.append(" sessionId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
+        absoluteOffset += SIZE_OF_INT;
+
+        builder.append(" streamId=").append(buffer.getInt(absoluteOffset, LITTLE_ENDIAN));
+        absoluteOffset += SIZE_OF_INT;
+
+        builder.append(" channel=");
+        buffer.getStringAscii(absoluteOffset, builder);
+    }
+
+    static void dissectResolve(
+        final DriverEventCode code, final MutableDirectBuffer buffer, final int offset, final StringBuilder builder)
+    {
+        int absoluteOffset = offset;
+        absoluteOffset += dissectLogHeader(CONTEXT, code, buffer, absoluteOffset, builder);
+
+        builder.append(": resolver=");
+        absoluteOffset += buffer.getStringAscii(absoluteOffset, builder);
+        absoluteOffset += SIZE_OF_INT; // String length
+
+        builder.append(" hostname=");
+        absoluteOffset += buffer.getStringAscii(absoluteOffset, builder);
+        absoluteOffset += SIZE_OF_INT; // String length
+
+        builder.append(" address=");
+        dissectInetAddress(buffer, absoluteOffset, builder);
     }
 
     static int frameType(final MutableDirectBuffer buffer, final int termOffset)

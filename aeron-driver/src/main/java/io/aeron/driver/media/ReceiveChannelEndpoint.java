@@ -434,6 +434,16 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
     }
 
     /**
+     * Return the {@link UdpChannel} for the Subscription channel.
+     *
+     * @return {@link UdpChannel} for the Subscription channel.
+     */
+    public UdpChannel subscriptionUdpChannel()
+    {
+        return super.udpChannel;
+    }
+
+    /**
      * Get the {@link UdpChannel} for the primary transport.
      *
      * @return the {@link UdpChannel} for the primary transport.
@@ -871,12 +881,12 @@ public class ReceiveChannelEndpoint extends ReceiveChannelEndpointHotFields
         }
         else if (udpChannel.hasExplicitControl() && (timeOfLastActivityNs + DESTINATION_ADDRESS_TIMEOUT) - nowNs < 0)
         {
+            timeOfLastActivityNs = nowNs;
             conductorProxy.reResolveControl(
                 udpChannel.channelUri().get(CommonContext.MDC_CONTROL_PARAM_NAME),
                 udpChannel,
                 this,
                 currentControlAddress);
-            timeOfLastActivityNs = nowNs;
         }
     }
 

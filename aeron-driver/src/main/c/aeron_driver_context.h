@@ -28,7 +28,6 @@
 #include "aeron_flow_control.h"
 #include "aeron_congestion_control.h"
 #include "aeron_agent.h"
-#include "aeron_name_resolver.h"
 #include "aeron_system_counters.h"
 #include "aeron_cnc_file_descriptor.h"
 
@@ -63,6 +62,19 @@ typedef struct aeron_driver_context_bindings_clientd_entry_stct
 aeron_driver_context_bindings_clientd_entry_t;
 
 typedef void (*aeron_driver_name_resolver_on_neighbor_change_func_t)(const struct sockaddr_storage *addr);
+
+typedef void (*aeron_driver_flow_control_strategy_on_receiver_change_func_t)(
+    int64_t receiver_id,
+    int32_t session_id,
+    int32_t stream_id,
+    size_t channel_length,
+    const char *channel,
+    size_t receiver_count);
+
+typedef void (*aeron_driver_name_resolver_on_resolve_t)(
+    aeron_name_resolver_t *name_resolver,
+    const char *hostname,
+    struct sockaddr_storage *address);
 
 typedef struct aeron_driver_context_stct
 {
@@ -214,6 +226,9 @@ typedef struct aeron_driver_context_stct
     aeron_driver_name_resolver_on_neighbor_change_func_t name_resolution_on_neighbor_added_func;
     aeron_driver_name_resolver_on_neighbor_change_func_t name_resolution_on_neighbor_removed_func;
 
+    aeron_driver_flow_control_strategy_on_receiver_change_func_t flow_control_on_receiver_added_func;
+    aeron_driver_flow_control_strategy_on_receiver_change_func_t flow_control_on_receiver_removed_func;
+
     aeron_driver_termination_validator_func_t termination_validator_func;
     void *termination_validator_state;
 
@@ -234,6 +249,7 @@ typedef struct aeron_driver_context_stct
     const char *resolver_bootstrap_neighbor;
     aeron_name_resolver_supplier_func_t name_resolver_supplier_func;
     const char *name_resolver_init_args;
+    aeron_driver_name_resolver_on_resolve_t on_name_resolve_func;
 
     aeron_dl_loaded_libs_state_t *dynamic_libs;
     aeron_driver_context_bindings_clientd_entry_t *bindings_clientd_entries;
@@ -266,6 +282,8 @@ size_t aeron_cnc_length(aeron_driver_context_t *context);
 
 int aeron_driver_context_bindings_clientd_create_entries(aeron_driver_context_t *context);
 int aeron_driver_context_bindings_clientd_delete_entries(aeron_driver_context_t *context);
+int aeron_driver_context_bindings_clientd_find_first_free_index(aeron_driver_context_t *context);
+int aeron_driver_context_bindings_clientd_find(aeron_driver_context_t *context, const char *name);
 
 inline void aeron_cnc_version_signal_cnc_ready(aeron_cnc_metadata_t *metadata, int32_t cnc_version)
 {
@@ -282,6 +300,13 @@ inline size_t aeron_producer_window_length(size_t producer_window_length, size_t
     }
 
     return window_length;
+}
+
+inline size_t aeron_receiver_window_length(size_t initial_receiver_window_length, size_t term_length)
+{
+    size_t term_window_length = term_length / 2;
+
+    return term_window_length < initial_receiver_window_length ? term_window_length : initial_receiver_window_length;
 }
 
 #endif //AERON_DRIVER_CONTEXT_H

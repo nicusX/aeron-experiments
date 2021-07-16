@@ -21,7 +21,6 @@ import io.aeron.driver.DefaultNameResolver;
 import io.aeron.driver.NameResolver;
 import io.aeron.driver.exceptions.InvalidChannelException;
 import org.agrona.BitUtil;
-import org.agrona.LangUtil;
 import org.agrona.SystemUtil;
 
 import java.net.*;
@@ -282,10 +281,10 @@ public final class UdpChannel
      * Parse a buffer length for a given URI paramName with a format specified by
      * {@link SystemUtil#parseSize(String, String)}, clamping the range to 0 &lt;= x &lt;= Integer.MAX_VALUE.
      *
-     * @see SystemUtil#parseSize(String, String)
      * @param channelUri to get the value from
-     * @param paramName key for the parameter
+     * @param paramName  key for the parameter
      * @return value as an integer
+     * @see SystemUtil#parseSize(String, String)
      */
     public static int parseBufferLength(final ChannelUri channelUri, final String paramName)
     {
@@ -652,21 +651,9 @@ public final class UdpChannel
      */
     public String description()
     {
-        final StringBuilder builder = new StringBuilder("UdpChannel - ");
-        if (null != localInterface)
-        {
-            builder
-                .append("interface: ")
-                .append(localInterface.getDisplayName())
-                .append(", ");
-        }
-
-        builder
-            .append("localData: ").append(localData)
-            .append(", remoteData: ").append(remoteData)
-            .append(", ttl: ").append(multicastTtl);
-
-        return builder.toString();
+        return "localData: " + formatAddressAndPort(localData.getAddress(), localData.getPort()) +
+            ", remoteData: " + formatAddressAndPort(remoteData.getAddress(), remoteData.getPort()) +
+            ", ttl: " + multicastTtl;
     }
 
     /**
@@ -714,7 +701,10 @@ public final class UdpChannel
         try
         {
             validateConfiguration(uri);
-            return getEndpointAddress(uri, nameResolver);
+
+            final String endpointValue = uri.get(CommonContext.ENDPOINT_PARAM_NAME);
+            return SocketAddressParser.parse(
+                endpointValue, CommonContext.ENDPOINT_PARAM_NAME, false, nameResolver);
         }
         catch (final Exception ex)
         {
@@ -730,11 +720,9 @@ public final class UdpChannel
      * @param isReResolution for the resolution
      * @param nameResolver   to be used for hostname.
      * @return address for endpoint
-     * @throws UnknownHostException if the endpoint can not be resolved.
      */
     public static InetSocketAddress resolve(
         final String endpoint, final String uriParamName, final boolean isReResolution, final NameResolver nameResolver)
-        throws UnknownHostException
     {
         return SocketAddressParser.parse(endpoint, uriParamName, isReResolution, nameResolver);
     }
@@ -761,19 +749,20 @@ public final class UdpChannel
     }
 
     private static InetSocketAddress getEndpointAddress(final ChannelUri uri, final NameResolver nameResolver)
+        throws UnknownHostException
     {
         InetSocketAddress address = null;
         final String endpointValue = uri.get(CommonContext.ENDPOINT_PARAM_NAME);
         if (null != endpointValue)
         {
-            try
+            address = SocketAddressParser.parse(
+                endpointValue, CommonContext.ENDPOINT_PARAM_NAME, false, nameResolver);
+
+            if (address.isUnresolved())
             {
-                address = SocketAddressParser.parse(
-                    endpointValue, CommonContext.ENDPOINT_PARAM_NAME, false, nameResolver);
-            }
-            catch (final UnknownHostException ex)
-            {
-                LangUtil.rethrowUnchecked(ex);
+                throw new UnknownHostException(
+                    "unresolved - " + CommonContext.ENDPOINT_PARAM_NAME + "=" + endpointValue +
+                    ", name-resolver=" + nameResolver.getClass().getName());
             }
         }
 
@@ -781,19 +770,20 @@ public final class UdpChannel
     }
 
     private static InetSocketAddress getExplicitControlAddress(final ChannelUri uri, final NameResolver nameResolver)
+        throws UnknownHostException
     {
         InetSocketAddress address = null;
         final String controlValue = uri.get(CommonContext.MDC_CONTROL_PARAM_NAME);
         if (null != controlValue)
         {
-            try
+            address = SocketAddressParser.parse(
+                controlValue, CommonContext.MDC_CONTROL_PARAM_NAME, false, nameResolver);
+
+            if (address.isUnresolved())
             {
-                address = SocketAddressParser.parse(
-                    controlValue, CommonContext.MDC_CONTROL_PARAM_NAME, false, nameResolver);
-            }
-            catch (final UnknownHostException ex)
-            {
-                LangUtil.rethrowUnchecked(ex);
+                throw new UnknownHostException(
+                    "unresolved - " + CommonContext.MDC_CONTROL_PARAM_NAME + "=" + controlValue +
+                    ", name-resolver=" + nameResolver.getClass().getName());
             }
         }
 
@@ -891,7 +881,7 @@ public final class UdpChannel
         boolean isMulticast = false;
         boolean hasMulticastTtl = false;
         boolean hasTagId = false;
-        boolean hasNoDistinguishingCharacteristic = false;;
+        boolean hasNoDistinguishingCharacteristic = false;
         int socketRcvbufLength = 0;
         int socketSndbufLength = 0;
         int receiverWindowLength = 0;

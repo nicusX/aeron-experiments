@@ -21,6 +21,8 @@ import io.aeron.archive.ArchivingMediaDriver;
 import io.aeron.archive.client.AeronArchive;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
 import io.aeron.test.Tests;
 import org.agrona.IoUtil;
 import org.agrona.MutableDirectBuffer;
@@ -28,10 +30,11 @@ import org.agrona.concurrent.Agent;
 import org.agrona.concurrent.MessageHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.File;
 import java.nio.file.Paths;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Set;
 
@@ -40,6 +43,7 @@ import static io.aeron.agent.EventConfiguration.EVENT_READER_FRAME_LIMIT;
 import static io.aeron.agent.EventConfiguration.EVENT_RING_BUFFER;
 import static java.util.Collections.synchronizedSet;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class ArchiveLoggingAgentTest
 {
     private static final Set<ArchiveEventCode> WAIT_LIST = synchronizedSet(EnumSet.noneOf(ArchiveEventCode.class));
@@ -49,7 +53,7 @@ public class ArchiveLoggingAgentTest
     @AfterEach
     public void after()
     {
-        AgentTests.afterAgent();
+        AgentTests.stopLogging();
 
         if (testDir != null && testDir.exists())
         {
@@ -58,14 +62,14 @@ public class ArchiveLoggingAgentTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void logAll()
     {
         testArchiveLogging("all", EnumSet.of(CMD_OUT_RESPONSE, CMD_IN_AUTH_CONNECT, CMD_IN_KEEP_ALIVE));
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void logControlSessionDemuxerOnFragment()
     {
         testArchiveLogging(CMD_IN_KEEP_ALIVE.name() + "," + CMD_IN_AUTH_CONNECT.id(),
@@ -73,7 +77,7 @@ public class ArchiveLoggingAgentTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void logControlResponseProxySendResponseHook()
     {
         testArchiveLogging(CMD_OUT_RESPONSE.name(), EnumSet.of(CMD_OUT_RESPONSE));
@@ -116,9 +120,10 @@ public class ArchiveLoggingAgentTest
 
     private void before(final String enabledEvents, final EnumSet<ArchiveEventCode> expectedEvents)
     {
-        System.setProperty(EventLogAgent.READER_CLASSNAME_PROP_NAME, StubEventLogReaderAgent.class.getName());
-        System.setProperty(EventConfiguration.ENABLED_ARCHIVE_EVENT_CODES_PROP_NAME, enabledEvents);
-        AgentTests.beforeAgent();
+        final EnumMap<ConfigOption, String> configOptions = new EnumMap<>(ConfigOption.class);
+        configOptions.put(ConfigOption.READER_CLASSNAME, StubEventLogReaderAgent.class.getName());
+        configOptions.put(ConfigOption.ENABLED_ARCHIVE_EVENT_CODES, enabledEvents);
+        AgentTests.startLogging(configOptions);
 
         WAIT_LIST.clear();
         WAIT_LIST.addAll(expectedEvents);

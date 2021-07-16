@@ -76,7 +76,11 @@ abstract class MultiSndDestination
         int bytesSent = 0;
         try
         {
-            if (datagramChannel.isOpen())
+            if (destination.isUnresolved())
+            {
+                bytesSent = bytesToSend;
+            }
+            else if (datagramChannel.isOpen())
             {
                 buffer.position(position);
                 channelEndpoint.sendHook(buffer, destination);
@@ -186,10 +190,9 @@ class ManualSndMultiDestination extends MultiSndDestination
         {
             if ((destination.timeOfLastActivityNs + DESTINATION_TIMEOUT) - nowNs < 0)
             {
-                final String endpoint = destination.channelUri.get(CommonContext.ENDPOINT_PARAM_NAME);
-
-                conductorProxy.reResolveEndpoint(endpoint, channelEndpoint, destination.address);
                 destination.timeOfLastActivityNs = nowNs;
+                final String endpoint = destination.channelUri.get(CommonContext.ENDPOINT_PARAM_NAME);
+                conductorProxy.reResolveEndpoint(endpoint, channelEndpoint, destination.address);
             }
         }
     }

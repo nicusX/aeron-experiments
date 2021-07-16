@@ -18,6 +18,10 @@ package io.aeron.test.launcher;
 import org.agrona.CloseHelper;
 
 import java.io.*;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
@@ -32,6 +36,50 @@ public class RemoteLaunchServer
 {
     private final ServerSocketChannel serverChannel;
     private final Collection<Connection> connections = new ConcurrentLinkedDeque<>();
+    private static final MethodHandle PID_HANDLE;
+    private static final MethodHandle UNIX_PROCESS_PID_HANDLE;
+
+    static
+    {
+        MethodHandle methodHandle;
+        MethodHandle unixProcessHandle = null;
+        final MethodHandles.Lookup lookup = MethodHandles.lookup();
+        try
+        {
+            methodHandle = lookup.findVirtual(Process.class, "pid", MethodType.methodType(Long.TYPE));
+        }
+        catch (final Exception ex)
+        {
+            try
+            {
+                final String unixProcessClassName = "java.lang.UNIXProcess";
+                final Class<?> unixProcessClass = Class.forName(unixProcessClassName);
+                final Field pidField = unixProcessClass.getDeclaredField("pid");
+                pidField.setAccessible(true);
+                unixProcessHandle = lookup.unreflectGetter(pidField);
+                methodHandle =
+                    lookup.findStatic(RemoteLaunchServer.class, "getPidFallback", MethodType
+                        .methodType(long.class, Process.class));
+            }
+            catch (final Exception ex2)
+            {
+                methodHandle = null;
+                unixProcessHandle = null;
+            }
+        }
+
+        PID_HANDLE = methodHandle;
+        UNIX_PROCESS_PID_HANDLE = unixProcessHandle;
+    }
+
+    private static long getPidFallback(final Process process) throws Throwable
+    {
+        if ("java.lang.UNIXProcess".equals(process.getClass().getName()))
+        {
+            return (long)UNIX_PROCESS_PID_HANDLE.invoke(process);
+        }
+        return 0L;
+    }
 
     public static void main(final String[] args) throws IOException
     {
@@ -57,7 +105,7 @@ public class RemoteLaunchServer
             (t, e) ->
             {
                 System.err.println("Uncaught exception on: " + t);
-                e.printStackTrace(System.err);
+                e.printStackTrace(System.out);
             });
 
         try
@@ -88,7 +136,7 @@ public class RemoteLaunchServer
         }
         catch (final IOException e)
         {
-            e.printStackTrace();
+            e.printStackTrace(System.out);
         }
 
         connections.forEach(Connection::stop);
@@ -150,7 +198,7 @@ public class RemoteLaunchServer
                             }
                             catch (final IOException e)
                             {
-                                e.printStackTrace();
+                                e.printStackTrace(System.out);
                             }
                             return;
                         }
@@ -166,7 +214,7 @@ public class RemoteLaunchServer
                             }
                             catch (final IOException e)
                             {
-                                e.printStackTrace();
+                                e.printStackTrace(System.out);
                             }
                             process.destroy();
                             return;
@@ -248,8 +296,8 @@ public class RemoteLaunchServer
             }
             catch (final IOException | ClassNotFoundException ex)
             {
-                System.err.println("Error occurred");
-                ex.printStackTrace();
+                System.out.println("Error occurred");
+                ex.printStackTrace(System.out);
 
                 if (currentState.compareAndSet(State.RUNNING, State.CLOSING) && null != process)
                 {
@@ -260,6 +308,23 @@ public class RemoteLaunchServer
             }
         }
 
+        private long pid()
+        {
+            if (null != process && null != PID_HANDLE)
+            {
+                try
+                {
+                    return (long)PID_HANDLE.invoke(process);
+                }
+                catch (final Throwable throwable)
+                {
+                    return 0;
+                }
+            }
+
+            return 0;
+        }
+
         private State startProcess(final String[] command) throws IOException
         {
             try
@@ -267,12 +332,31 @@ public class RemoteLaunchServer
                 final Process p = new ProcessBuilder(command)
                     .redirectErrorStream(true)
                     .start();
-
                 process = p;
 
-                responseReader = new ProcessResponseReader(connectionChannel);
+                final long startTimeMs = System.currentTimeMillis();
+                System.out.println("[" + pid() + "] Started: " + String.join(" ", command));
+
+                responseReader = new ProcessResponseReader(connectionChannel, pid());
                 final Thread responseThread = new Thread(() -> responseReader.runResponses(p.getInputStream()));
                 responseThread.start();
+                final Thread processMonitorThread = new Thread(() ->
+                {
+                    try
+                    {
+                        final int exitCode = process.waitFor();
+                        final long endTimeMs = System.currentTimeMillis();
+                        System.out.println(
+                            "[" + pid() + "] Exited with code: " + exitCode +
+                            " after: " + (endTimeMs - startTimeMs) + "ms");
+                    }
+                    catch (final InterruptedException e)
+                    {
+                        System.out.println("[" + pid() + "] Unexpected exception waiting on exit code");
+                        e.printStackTrace(System.out);
+                    }
+                });
+                processMonitorThread.start();
 
                 return State.RUNNING;
             }
@@ -296,11 +380,13 @@ public class RemoteLaunchServer
     private static final class ProcessResponseReader
     {
         private final SocketChannel connectionChannel;
+        private final long pid;
         private volatile boolean isClosed = false;
 
-        private ProcessResponseReader(final SocketChannel connectionChannel)
+        private ProcessResponseReader(final SocketChannel connectionChannel, final long pid)
         {
             this.connectionChannel = connectionChannel;
+            this.pid = pid;
         }
 
         private void runResponses(final InputStream processOutput)
@@ -331,7 +417,7 @@ public class RemoteLaunchServer
                 }
                 else
                 {
-                    System.out.println("Process closed");
+                    System.out.println("[" + pid + "] Process closed");
                 }
             }
         }

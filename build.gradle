@@ -14,18 +14,11 @@
  * limitations under the License.
  */
 
-buildscript {
-    repositories {
-        mavenCentral()
-    }
-}
-
 plugins {
     id 'java-library'
-    id 'idea'
-    id 'com.github.johnrengelman.shadow' version '6.1.0' apply false
+    id 'com.github.johnrengelman.shadow' version '7.0.0' apply false
     id 'biz.aQute.bnd.builder' version '5.3.0' apply false
-    id "com.github.ben-manes.versions" version "0.38.0"
+    id "com.github.ben-manes.versions" version "0.39.0"
 }
 
 defaultTasks 'clean', 'build'
@@ -49,14 +42,14 @@ def toolchainLauncher = javaToolchains.launcherFor {
 def aeronGroup = 'io.aeron'
 def aeronVersion = file('version.txt').text.trim()
 
-def agronaVersion = '1.9.0'
-def agronaVersionRange = '[1.9,1.10[' // allow any patch release of 1.9.x
-def sbeVersion = '1.21.0'
+def agronaVersion = '1.11.0'
+def agronaVersionRange = '[1.11,1.12[' // allow any patch release of 1.11.x
+def sbeVersion = '1.23.0'
 def checkstyleVersion = '8.39'
 def hamcrestVersion = '2.2'
-def junitVersion = '5.7.1'
-def mockitoVersion = '3.8.0'
-def byteBuddyVersion = '1.10.22'
+def junitVersion = '5.7.2'
+def mockitoVersion = '3.11.2'
+def byteBuddyVersion = '1.11.3'
 def hdrHistogramVersion = '2.1.12'
 
 ext {
@@ -144,25 +137,24 @@ allprojects {
     configurations.all {
         resolutionStrategy {
             failOnVersionConflict()
+
+            force "net.bytebuddy:byte-buddy:${byteBuddyVersion}",
+                  "net.bytebuddy:byte-buddy-agent:${byteBuddyVersion}"
         }
     }
 
     tasks.withType(JavaExec).configureEach {
-        javaLauncher = toolchainLauncher
+        javaLauncher.set(toolchainLauncher)
     }
 }
 
 subprojects {
     apply plugin: 'java-library'
     apply plugin: 'checkstyle'
-    apply plugin: 'eclipse'
 
     dependencies {
         testImplementation "org.hamcrest:hamcrest:${hamcrestVersion}"
-        testImplementation ("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
-            exclude group: 'org.junit.jupiter'
-            exclude group: 'net.bytebuddy'
-        }
+        testImplementation "org.mockito:mockito-core:${mockitoVersion}"
         testImplementation "org.junit.jupiter:junit-jupiter-params:${junitVersion}"
         testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${junitVersion}"
     }
@@ -231,7 +223,7 @@ subprojects {
             'aeron.perform.storage.checks': 'false')
     }
 
-    task slowTest(type: Test) {
+    task slowTest(type: Test, group: 'verification') {
         dependsOn ":aeron-agent:jar"
 
         maxParallelForks = 1
@@ -250,7 +242,7 @@ subprojects {
         systemProperty "aeron.event.log.reader.classname", "io.aeron.agent.CollectingEventLogReaderAgent"
     }
 
-    task topologyTest(type: Test) {
+    task topologyTest(type: Test, group: 'verification') {
         maxParallelForks = 1
         useJUnitPlatform {
             includeTags 'topology'
@@ -260,12 +252,12 @@ subprojects {
     javadoc {
         failOnError false
         title = '<h1>Aeron Message Transport</h1>'
-        options.bottom = '<i>Copyright &#169; 2014-2020 Real Logic Limited. All Rights Reserved.</i>'
+        options.bottom = '<i>Copyright &#169; 2014-2021 Real Logic Limited. All Rights Reserved.</i>'
         options.encoding = 'UTF-8'
         options.docEncoding = 'UTF-8'
         options.charSet = 'UTF-8'
         options.links("https://www.javadoc.io/doc/org.agrona/agrona/${agronaVersion}/")
-        if (buildJavaVersion >= 16) { // early access JavaDoc location is different
+        if (buildJavaVersion >= 17) { // early access JavaDoc location is different
             options.links("https://download.java.net/java/early_access/jdk${buildJavaVersion}/docs/api/")
         }
         else if (buildJavaVersion >= 11) {
@@ -306,12 +298,7 @@ project(':aeron-client') {
             }
         }
         testImplementation project(':aeron-test-support')
-        testImplementation ("org.mockito:mockito-inline:${mockitoVersion}") {
-            exclude group: 'org.junit.jupiter'
-            exclude group: 'net.bytebuddy'
-        }
-        testImplementation "net.bytebuddy:byte-buddy-agent:${byteBuddyVersion}"
-        testRuntimeOnly "net.bytebuddy:byte-buddy:${byteBuddyVersion}"
+        testImplementation "org.mockito:mockito-inline:${mockitoVersion}"
     }
 
     jar {
@@ -371,12 +358,7 @@ project(':aeron-driver') {
     dependencies {
         api project(':aeron-client')
         testImplementation project(':aeron-test-support')
-        testImplementation ("org.mockito:mockito-inline:${mockitoVersion}") {
-            exclude group: 'org.junit.jupiter'
-            exclude group: 'net.bytebuddy'
-        }
-        testImplementation "net.bytebuddy:byte-buddy-agent:${byteBuddyVersion}"
-        testRuntimeOnly "net.bytebuddy:byte-buddy:${byteBuddyVersion}"
+        testImplementation "org.mockito:mockito-inline:${mockitoVersion}"
     }
 
     jar {
@@ -447,12 +429,7 @@ project(':aeron-archive') {
         api files('build/classes/java/generated')
         codecGeneration "uk.co.real-logic:sbe-tool:${sbeVersion}"
         testImplementation project(':aeron-test-support')
-        testImplementation ("org.mockito:mockito-inline:${mockitoVersion}") {
-            exclude group: 'org.junit.jupiter'
-            exclude group: 'net.bytebuddy'
-        }
-        testImplementation "net.bytebuddy:byte-buddy-agent:${byteBuddyVersion}"
-        testRuntimeOnly "net.bytebuddy:byte-buddy:${byteBuddyVersion}"
+        testImplementation "org.mockito:mockito-inline:${mockitoVersion}"
     }
 
     def generatedDir = file("${buildDir}/generated-src")
@@ -463,9 +440,6 @@ project(':aeron-archive') {
         }
     }
 
-    compileJava.dependsOn 'compileGeneratedJava'
-    compileGeneratedJava.dependsOn 'generateCodecs'
-
     task generateCodecs(type: JavaExec) {
         def codecsFile = 'src/main/resources/archive/aeron-archive-codecs.xml'
         def markCodecsFile = 'src/main/resources/archive/aeron-archive-mark-codecs.xml'
@@ -474,7 +448,7 @@ project(':aeron-archive') {
         inputs.files(codecsFile, markCodecsFile, sbeFile)
         outputs.dir generatedDir
 
-        main = 'uk.co.real_logic.sbe.SbeTool'
+        mainClass.set('uk.co.real_logic.sbe.SbeTool')
         classpath = configurations.codecGeneration
         systemProperties(
             'sbe.output.dir': generatedDir,
@@ -486,7 +460,7 @@ project(':aeron-archive') {
 
     def generatedCppDir = file(System.getProperty('codec.target.dir') ?: "${rootDir}/cppbuild/Release/generated")
     task generateCppCodecs(type: JavaExec) {
-        main = 'uk.co.real_logic.sbe.SbeTool'
+        mainClass.set('uk.co.real_logic.sbe.SbeTool')
         classpath = configurations.codecGeneration
         systemProperties(
             'sbe.output.dir': generatedCppDir,
@@ -496,6 +470,9 @@ project(':aeron-archive') {
             'sbe.validation.stop.on.error': 'true')
         args = ['src/main/resources/archive/aeron-archive-codecs.xml']
     }
+
+    compileJava.dependsOn compileGeneratedJava
+    compileGeneratedJava.dependsOn generateCodecs
 
     jar {
         from sourceSets.generated.output
@@ -516,7 +493,7 @@ project(':aeron-archive') {
         """
     }
 
-    task sourcesJar(type: Jar) {
+    task sourcesJar(type: Jar, dependsOn: generateCodecs) {
         archiveClassifier.set('sources')
         from sourceSets.main.allSource
         from sourceSets.generated.allSource
@@ -527,6 +504,8 @@ project(':aeron-archive') {
         source += project(':aeron-client').sourceSets.main.allJava
         source += project(':aeron-driver').sourceSets.main.allJava
     }
+
+    javadoc.dependsOn generateCodecs
 
     java {
         withSourcesJar()
@@ -571,12 +550,7 @@ project(':aeron-cluster') {
         api files('build/classes/java/generated')
         codecGeneration "uk.co.real-logic:sbe-tool:${sbeVersion}"
         testImplementation project(':aeron-test-support')
-        testImplementation ("org.mockito:mockito-inline:${mockitoVersion}") {
-            exclude group: 'org.junit.jupiter'
-            exclude group: 'net.bytebuddy'
-        }
-        testImplementation "net.bytebuddy:byte-buddy-agent:${byteBuddyVersion}"
-        testRuntimeOnly "net.bytebuddy:byte-buddy:${byteBuddyVersion}"
+        testImplementation "org.mockito:mockito-inline:${mockitoVersion}"
     }
 
     def generatedDir = file("${buildDir}/generated-src")
@@ -587,9 +561,6 @@ project(':aeron-cluster') {
         }
     }
 
-    compileJava.dependsOn 'compileGeneratedJava'
-    compileGeneratedJava.dependsOn 'generateCodecs'
-
     task generateCodecs(type: JavaExec) {
         def codecsFile = 'src/main/resources/cluster/aeron-cluster-codecs.xml'
         def markCodecsFile = 'src/main/resources/cluster/aeron-cluster-mark-codecs.xml'
@@ -598,7 +569,7 @@ project(':aeron-cluster') {
         inputs.files(codecsFile, markCodecsFile, sbeFile)
         outputs.dir generatedDir
 
-        main = 'uk.co.real_logic.sbe.SbeTool'
+        mainClass.set('uk.co.real_logic.sbe.SbeTool')
         classpath = configurations.codecGeneration
         systemProperties(
             'sbe.output.dir': generatedDir,
@@ -607,6 +578,9 @@ project(':aeron-cluster') {
             'sbe.validation.stop.on.error': 'true')
         args = [codecsFile, markCodecsFile]
     }
+
+    compileJava.dependsOn compileGeneratedJava
+    compileGeneratedJava.dependsOn generateCodecs
 
     jar {
         from sourceSets.generated.output
@@ -627,7 +601,7 @@ project(':aeron-cluster') {
         """
     }
 
-    task sourcesJar(type: Jar) {
+    task sourcesJar(type: Jar, dependsOn: generateCodecs) {
         archiveClassifier.set('sources')
         from sourceSets.main.allSource
         from sourceSets.generated.allSource
@@ -640,6 +614,8 @@ project(':aeron-cluster') {
         source += project(':aeron-archive').sourceSets.main.allJava
         source += project(':aeron-archive').sourceSets.generated.allJava
     }
+
+    javadoc.dependsOn generateCodecs
 
     java {
         withSourcesJar()
@@ -683,8 +659,8 @@ project(':aeron-agent') {
     dependencies {
         implementation aeronClusterProject
         implementation "net.bytebuddy:byte-buddy:${byteBuddyVersion}"
+        implementation "net.bytebuddy:byte-buddy-agent:${byteBuddyVersion}"
         testImplementation project(':aeron-test-support')
-        testImplementation "net.bytebuddy:byte-buddy-agent:${byteBuddyVersion}"
     }
 
     shadowJar {
@@ -700,11 +676,13 @@ project(':aeron-agent') {
             "Can-Retransform-Classes": "true",
             'Automatic-Module-Name': 'io.aeron.agent'
         )
+
+        relocate 'net.bytebuddy', 'io.aeron.shadow.net.bytebuddy'
     }
 
     jar.finalizedBy shadowJar
 
-    task sourcesJar(type: Jar) {
+    task sourcesJar(type: Jar, dependsOn: [':aeron-archive:generateCodecs', ':aeron-cluster:generateCodecs']) {
         archiveClassifier.set('sources')
         from files(
             aeronClientProject.sourceSets.main.allSource,
@@ -723,6 +701,8 @@ project(':aeron-agent') {
         source += aeronClusterProject.sourceSets.main.allJava
         source += aeronClusterProject.sourceSets.generated.allJava
     }
+
+    javadoc.dependsOn ':aeron-archive:generateCodecs', ':aeron-cluster:generateCodecs'
 
     task javadocJar(type: Jar, dependsOn: javadoc) {
         archiveClassifier.set('javadoc')
@@ -823,9 +803,6 @@ project(':aeron-system-tests') {
         testImplementation project(path: ':aeron-client', configuration: 'tests')
         testImplementation project(path: ':aeron-archive', configuration: 'tests')
         testImplementation project(path: ':aeron-cluster')
-        testImplementation ("org.mockito:mockito-core:${mockitoVersion}") {
-            exclude group: 'org.junit.jupiter'
-        }
         if (buildJavaVersion == 8) {
             def jdkHome = toolchainLauncher.get().metadata.installationPath.asFile.toPath().toAbsolutePath()
             testImplementation files(jdkHome.resolve("lib/tools.jar").toFile())
@@ -844,11 +821,9 @@ project(':aeron-test-support') {
     dependencies {
         api project(':aeron-client')
         api project(':aeron-cluster')
+        api project(':aeron-samples')
         api "org.junit.jupiter:junit-jupiter-api:${junitVersion}"
-        implementation ("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
-            exclude group: 'org.junit.jupiter'
-            exclude group: 'net.bytebuddy'
-        }
+        implementation "org.mockito:mockito-core:${mockitoVersion}"
     }
 
     javadoc.enabled = false
@@ -882,7 +857,7 @@ project(':aeron-all') {
 
     jar.finalizedBy shadowJar
 
-    task sourcesJar(type: Jar) {
+    task sourcesJar(type: Jar, dependsOn: [':aeron-archive:generateCodecs', ':aeron-cluster:generateCodecs']) {
         archiveClassifier.set('sources')
         from files(
             aeronClientProject.sourceSets.main.allSource,
@@ -903,6 +878,8 @@ project(':aeron-all') {
         source += aeronClusterProject.sourceSets.generated.allJava
         source += aeronSamplesProject.sourceSets.main.allJava
     }
+
+    javadoc.dependsOn ':aeron-archive:generateCodecs', ':aeron-cluster:generateCodecs'
 
     task javadocJar(type: Jar, dependsOn: javadoc) {
         archiveClassifier.set('javadoc')
@@ -952,7 +929,20 @@ task copyTestLogs(type: Copy) {
     includeEmptyDirs = false
 }
 
+def isNonStable = { String version ->
+    def stableKeyword = ['RELEASE', 'FINAL', 'GA'].any { it -> version.toUpperCase().contains(it) }
+    def regex = /^[0-9,.v-]+(-r)?$/
+    return !stableKeyword && !(version ==~ regex)
+}
+
+tasks.named("dependencyUpdates").configure {
+    // Reject all non stable versions
+    rejectVersionIf {
+        isNonStable(it.candidate.version)
+    }
+}
+
 wrapper {
-    gradleVersion = '6.8.3'
+    gradleVersion = '7.1.1'
     distributionType = 'ALL'
 }

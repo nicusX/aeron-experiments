@@ -26,6 +26,8 @@ import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.logbuffer.BufferClaim;
 import io.aeron.logbuffer.Header;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
 import io.aeron.test.Tests;
 import io.aeron.test.cluster.ClusterTests;
 import io.aeron.test.cluster.StubClusteredService;
@@ -36,11 +38,12 @@ import org.agrona.collections.MutableInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class ClusterNodeTest
 {
     private static final long CATALOG_CAPACITY = 1024 * 1024;
@@ -67,6 +70,7 @@ public class ClusterNodeTest
                 .errorHandler(ClusterTests.errorHandler(0))
                 .terminationHook(ClusterTests.NOOP_TERMINATION_HOOK)
                 .logChannel("aeron:ipc")
+                .replicationChannel("aeron:udp?endpoint=localhost:0")
                 .deleteDirOnStart(true));
     }
 
@@ -88,17 +92,19 @@ public class ClusterNodeTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldConnectAndSendKeepAlive()
     {
         container = launchEchoService();
         aeronCluster = connectToCluster(null);
 
         assertTrue(aeronCluster.sendKeepAlive());
+
+        ClusterTests.failOnClusterError();
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldEchoMessageViaServiceUsingDirectOffer()
     {
         final ExpandableArrayBuffer msgBuffer = new ExpandableArrayBuffer();
@@ -124,7 +130,7 @@ public class ClusterNodeTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldEchoMessageViaServiceUsingTryClaim()
     {
         final ExpandableArrayBuffer msgBuffer = new ExpandableArrayBuffer();
@@ -168,7 +174,7 @@ public class ClusterNodeTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldScheduleEventInService()
     {
         final ExpandableArrayBuffer msgBuffer = new ExpandableArrayBuffer();
@@ -195,7 +201,7 @@ public class ClusterNodeTest
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void shouldSendResponseAfterServiceMessage()
     {
         final ExpandableArrayBuffer msgBuffer = new ExpandableArrayBuffer();
@@ -362,6 +368,6 @@ public class ClusterNodeTest
             new AeronCluster.Context()
                 .egressListener(egressListener)
                 .ingressChannel("aeron:udp")
-                .ingressEndpoints("0=localhost:9010,1=localhost:9011,2=localhost:9012"));
+                .ingressEndpoints("0=localhost:9010"));
     }
 }

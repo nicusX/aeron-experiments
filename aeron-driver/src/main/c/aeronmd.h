@@ -700,6 +700,7 @@ int32_t aeron_driver_context_get_publication_reserved_session_id_low(aeron_drive
 int aeron_driver_context_set_publication_reserved_session_id_high(aeron_driver_context_t *context, int32_t value);
 int32_t aeron_driver_context_get_publication_reserved_session_id_high(aeron_driver_context_t *context);
 
+struct aeron_name_resolver_stct;
 typedef struct aeron_name_resolver_stct aeron_name_resolver_t;
 typedef int (*aeron_name_resolver_supplier_func_t)(
     aeron_name_resolver_t *resolver,
@@ -727,7 +728,7 @@ const char *aeron_driver_context_get_resolver_interface(aeron_driver_context_t *
 /**
  * Get the bootstrap neighbor of the {@link MediaDriver} for name resolver purposes.
  *
- * The format is hostname:port and follows the URI format for the endpoint parameter.
+ * The format is comma separated list of hostname:port pairs and follows the URI format for the endpoint parameter.
  */
 #define AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR_ENV_VAR "AERON_DRIVER_RESOLVER_BOOTSTRAP_NEIGHBOR"
 

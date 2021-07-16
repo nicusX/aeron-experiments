@@ -27,12 +27,11 @@ public class OptimalMulticastDelayGeneratorTest
     private static final long MAX_BACKOFF = TimeUnit.MILLISECONDS.toNanos(60);
     private static final long GROUP_SIZE = 10;
 
-    private final OptimalMulticastDelayGenerator generator = new OptimalMulticastDelayGenerator(
-        MAX_BACKOFF, GROUP_SIZE);
-
     @Test
     public void shouldNotExceedTmaxBackoff()
     {
+        final OptimalMulticastDelayGenerator generator = new OptimalMulticastDelayGenerator(MAX_BACKOFF, GROUP_SIZE);
+
         for (int i = 0; i < 100_000; i++)
         {
             final double delay = generator.generateNewOptimalDelay();

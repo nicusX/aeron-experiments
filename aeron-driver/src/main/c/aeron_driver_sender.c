@@ -174,10 +174,9 @@ int aeron_driver_sender_do_work(void *clientd)
 
         if (sender->context->re_resolution_check_interval_ns > 0 && (sender->re_resolution_deadline_ns - now_ns) < 0)
         {
+            sender->re_resolution_deadline_ns = now_ns + sender->context->re_resolution_check_interval_ns;
             aeron_udp_transport_poller_check_send_endpoint_re_resolutions(
                 &sender->poller, now_ns, sender->context->conductor_proxy);
-
-            sender->re_resolution_deadline_ns = now_ns + sender->context->re_resolution_check_interval_ns;
         }
 
         work_count += (poll_result < 0 ? 0 : poll_result);
@@ -263,7 +262,7 @@ void aeron_driver_sender_on_add_publication(void *clientd, void *command)
 
     int ensure_capacity_result = 0;
     AERON_ARRAY_ENSURE_CAPACITY(
-        ensure_capacity_result, sender->network_publications, aeron_driver_sender_network_publication_entry_t);
+        ensure_capacity_result, sender->network_publications, aeron_driver_sender_network_publication_entry_t)
 
     if (ensure_capacity_result < 0)
     {

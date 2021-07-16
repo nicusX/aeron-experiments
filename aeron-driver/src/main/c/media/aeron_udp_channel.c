@@ -204,6 +204,7 @@ int aeron_udp_channel_parse(
     _channel->socket_rcvbuf_length = 0;
     _channel->socket_sndbuf_length = 0;
     _channel->receiver_window_length = 0;
+    _channel->packet_timestamp_offset = AERON_NULL_VALUE;
 
     if (_channel->uri.type != AERON_URI_UDP)
     {
@@ -340,7 +341,13 @@ int aeron_udp_channel_parse(
     }
     else if (NULL != _channel->uri.params.udp.control)
     {
-        _channel->interface_index = 0;
+        if (aeron_find_unicast_interface(
+            explicit_control_addr.ss_family, _channel->uri.params.udp.bind_interface, &interface_addr, &interface_index) < 0)
+        {
+            goto error_cleanup;
+        }
+
+        _channel->interface_index = interface_index;
         _channel->multicast_ttl = 0;
         memcpy(&_channel->remote_data, &endpoint_addr, AERON_ADDR_LEN(&endpoint_addr));
         memcpy(&_channel->remote_control, &endpoint_addr, AERON_ADDR_LEN(&endpoint_addr));
@@ -379,6 +386,12 @@ int aeron_udp_channel_parse(
         _channel->canonical_length = strlen(_channel->canonical_form);
     }
 
+    if (aeron_driver_uri_get_packet_timestamp_offset(&_channel->uri, &_channel->packet_timestamp_offset) < 0)
+    {
+        AERON_APPEND_ERR("%s", "");
+        goto error_cleanup;
+    }
+
     *channel = _channel;
     return 0;
 
@@ -405,4 +418,10 @@ extern bool aeron_udp_channel_is_wildcard(aeron_udp_channel_t *channel);
 
 extern bool aeron_udp_channel_equals(aeron_udp_channel_t *a, aeron_udp_channel_t *b);
 
+extern size_t aeron_udp_channel_socket_so_sndbuf(aeron_udp_channel_t *channel, size_t default_so_sndbuf);
+
+extern size_t aeron_udp_channel_socket_so_rcvbuf(aeron_udp_channel_t *channel, size_t default_so_rcvbuf);
+
 extern size_t aeron_udp_channel_receiver_window(aeron_udp_channel_t *channel, size_t default_receiver_window);
+
+extern bool aeron_udp_channel_is_packet_timestamping(aeron_udp_channel_t *channel);

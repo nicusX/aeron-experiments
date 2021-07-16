@@ -39,8 +39,10 @@ std::shared_ptr<AeronArchive> AeronArchive::AsyncConnect::poll()
     if (m_nanoClock() > m_deadlineNs)
     {
         throw TimeoutException(
-            "Archive connect timeout: correlationId=" + std::to_string(m_correlationId) +
-            " step=" + std::to_string(m_step),
+            "Archive connect timeout: step=" + std::to_string(m_step) +
+            (m_step < 2 ?
+                " publication.uri=" + (m_publication ? m_publication->channel() : "<awaiting find operation>") :
+                " subscription.uri=" + (m_subscription ? m_subscription->channel() : "<awaiting find operation>")),
             SOURCEINFO);
     }
 
@@ -74,7 +76,7 @@ std::shared_ptr<AeronArchive> AeronArchive::AsyncConnect::poll()
         m_step = 1;
     }
 
-    if (1 == m_step)
+    if (1 == m_step && m_subscription)
     {
         std::string controlResponseChannel = m_subscription->tryResolveChannelEndpointPort();
         if (controlResponseChannel.empty())

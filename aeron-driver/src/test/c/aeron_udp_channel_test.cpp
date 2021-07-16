@@ -15,6 +15,9 @@
  */
 
 #include <gtest/gtest.h>
+#include <gmock/gmock.h>
+
+#include <regex>
 
 extern "C"
 {
@@ -278,25 +281,30 @@ TEST_F(UdpChannelTest, shouldCanonicalizeIpv6ForUnicastWithMixedAddressTypes)
     EXPECT_STREQ(m_channel->canonical_form, "UDP-[::1]:0-192.168.0.1:40456");
 }
 
+MATCHER_P(ReMatch, pattern, std::string("ReMatch(").append(pattern).append(")"))
+{
+    return std::regex_match(arg, std::regex(pattern));
+}
+
 TEST_F(UdpChannelTest, shouldCanonicalizeForIpv4Multicast)
 {
     ASSERT_EQ(parse_udp_channel("aeron:udp?interface=127.0.0.1:40455|endpoint=224.0.1.1:40456"), 0) << aeron_errmsg();
-    EXPECT_STREQ(m_channel->canonical_form, "UDP-127.0.0.1:40455-224.0.1.1:40456");
-
-    ASSERT_EQ(parse_udp_channel("aeron:udp?interface=127.0.0.0:40455/24|endpoint=224.0.1.1:40456"), 0) << aeron_errmsg();
-    EXPECT_STREQ(m_channel->canonical_form, "UDP-127.0.0.1:40455-224.0.1.1:40456");
+    EXPECT_STREQ("UDP-127.0.0.1:40455-224.0.1.1:40456", m_channel->canonical_form);
 
     ASSERT_EQ(parse_udp_channel("aeron:udp?interface=localhost|endpoint=224.0.1.1:40456"), 0) << aeron_errmsg();
-    EXPECT_STREQ(m_channel->canonical_form, "UDP-127.0.0.1:0-224.0.1.1:40456");
+    EXPECT_STREQ("UDP-127.0.0.1:0-224.0.1.1:40456", m_channel->canonical_form);
 
     ASSERT_EQ(parse_udp_channel("aeron:udp?interface=127.0.0.1|endpoint=224.0.1.1:40456"), 0) << aeron_errmsg();
-    EXPECT_STREQ(m_channel->canonical_form, "UDP-127.0.0.1:0-224.0.1.1:40456");
+    EXPECT_STREQ("UDP-127.0.0.1:0-224.0.1.1:40456", m_channel->canonical_form);
 
-    ASSERT_EQ(parse_udp_channel("aeron:udp?interface=localhost/24|endpoint=224.0.1.1:40456"), 0) << aeron_errmsg();
-    EXPECT_STREQ(m_channel->canonical_form, "UDP-127.0.0.1:0-224.0.1.1:40456");
+    ASSERT_EQ(parse_udp_channel("aeron:udp?interface=127.0.0.0:40455/29|endpoint=224.0.1.1:40456"), 0) << aeron_errmsg();
+    EXPECT_THAT((char *)m_channel->canonical_form, ReMatch("UDP-127\\.0\\.0\\.[1-7]:40455-224\\.0\\.1\\.1:40456"));
 
-    ASSERT_EQ(parse_udp_channel("aeron:udp?interface=127.0.0.0/24|endpoint=224.0.1.1:40456"), 0) << aeron_errmsg();
-    EXPECT_STREQ(m_channel->canonical_form, "UDP-127.0.0.1:0-224.0.1.1:40456");
+    ASSERT_EQ(parse_udp_channel("aeron:udp?interface=localhost/29|endpoint=224.0.1.1:40456"), 0) << aeron_errmsg();
+    EXPECT_THAT((char *)m_channel->canonical_form, ReMatch("UDP-127\\.0\\.0\\.[1-7]:0-224\\.0\\.1\\.1:40456"));
+
+    ASSERT_EQ(parse_udp_channel("aeron:udp?interface=127.0.0.0/29|endpoint=224.0.1.1:40456"), 0) << aeron_errmsg();
+    EXPECT_THAT((char *)m_channel->canonical_form, ReMatch("UDP-127\\.0\\.0\\.[1-7]:0-224\\.0\\.1\\.1:40456"));
 }
 
 TEST_F(UdpChannelTest, shouldCanonicalizeForIpv6Multicast)
@@ -344,7 +352,7 @@ TEST_F(UdpChannelTest, shouldUseUniqueIdInCanonicalFormIfWildcardsInUseIPv4)
     EXPECT_EQ(0u, std::string(m_channel->canonical_form).rfind("UDP-127.0.0.1:0-127.0.0.1:9999-"));
 }
 
-TEST_F(UdpChannelTest, shouldResolveWithNameLookup)
+TEST_F(UdpChannelTest, DISABLED_shouldResolveWithNameLookup)
 {
     const char *config_param =
         "NAME_0," AERON_UDP_CHANNEL_ENDPOINT_KEY ",localhost:9001,localhost:9001|"
@@ -430,7 +438,7 @@ TEST_F(UdpChannelTest, shouldParseReceiverWindow)
     ASSERT_EQ(8192u, m_channel->receiver_window_length);
 }
 
-TEST_P(UdpChannelNamesParameterisedTest, shouldBeValid)
+TEST_P(UdpChannelNamesParameterisedTest, DISABLED_shouldBeValid)
 {
     const char *endpoint_name = std::get<0>(GetParam());
     const char *endpoint_address = std::get<1>(GetParam());

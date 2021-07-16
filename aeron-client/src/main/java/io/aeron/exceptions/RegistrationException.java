@@ -51,7 +51,7 @@ public class RegistrationException extends AeronException
         final long correlationId, final int errorCodeValue, final ErrorCode errorCode, final String msg)
     {
         super(
-            msg + ", errorCodeValue=" + errorCodeValue,
+            stripCategoryName(msg) + ", errorCodeValue=" + errorCodeValue,
             ErrorCode.RESOURCE_TEMPORARILY_UNAVAILABLE == errorCode ? Category.WARN : Category.ERROR);
         this.correlationId = correlationId;
         this.errorCode = errorCode;
@@ -87,5 +87,23 @@ public class RegistrationException extends AeronException
     public int errorCodeValue()
     {
         return errorCodeValue;
+    }
+
+    private static String stripCategoryName(final String msg)
+    {
+        if (null != msg && msg.length() > 7)
+        {
+            if (msg.startsWith("ERROR - ") || msg.startsWith("FATAL - "))
+            {
+                return msg.substring(8);
+            }
+
+            if (msg.startsWith("WARN - "))
+            {
+                return msg.substring(7);
+            }
+        }
+
+        return msg;
     }
 }

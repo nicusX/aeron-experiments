@@ -98,6 +98,7 @@ typedef struct aeron_subscription_link_stct
     int32_t channel_length;
     int64_t registration_id;
     int64_t client_id;
+    int32_t packet_timestamp_offset;
 
     aeron_receive_channel_endpoint_t *endpoint;
     aeron_udp_channel_t *spy_channel;
@@ -294,8 +295,6 @@ typedef struct aeron_driver_conductor_stct
 }
 aeron_driver_conductor_t;
 
-#define AERON_FORMAT_BUFFER(buffer, format, ...) snprintf(buffer, sizeof(buffer) - 1, format, __VA_ARGS__)
-
 void aeron_client_on_time_event(
     aeron_driver_conductor_t *conductor, aeron_client_t *client, int64_t now_ns, int64_t now_ms);
 
@@ -458,10 +457,10 @@ int aeron_driver_conductor_on_remove_subscription(aeron_driver_conductor_t *cond
 
 int aeron_driver_conductor_on_client_keepalive(aeron_driver_conductor_t *conductor, int64_t client_id);
 
-int aeron_driver_conductor_on_add_destination(
+int aeron_driver_conductor_on_add_send_destination(
     aeron_driver_conductor_t *conductor, aeron_destination_command_t *command);
 
-int aeron_driver_conductor_on_remove_destination(
+int aeron_driver_conductor_on_remove_send_destination(
     aeron_driver_conductor_t *conductor, aeron_destination_command_t *command);
 
 int aeron_driver_conductor_on_add_receive_destination(

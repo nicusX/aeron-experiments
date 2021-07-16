@@ -20,8 +20,9 @@ import io.aeron.Publication;
 import io.aeron.Subscription;
 import io.aeron.driver.MediaDriver;
 import io.aeron.logbuffer.FragmentHandler;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
 import io.aeron.test.Tests;
-import org.agrona.IoUtil;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.collections.MutableInteger;
 import org.agrona.concurrent.Agent;
@@ -29,15 +30,15 @@ import org.agrona.concurrent.MessageHandler;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
-import java.io.File;
-import java.nio.file.Paths;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import static io.aeron.CommonContext.IPC_CHANNEL;
 import static io.aeron.agent.DriverEventCode.*;
@@ -47,28 +48,23 @@ import static java.util.Collections.synchronizedSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.params.provider.EnumSource.Mode.INCLUDE;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class DriverLoggingAgentTest
 {
-    private static final String NETWORK_CHANNEL = "aeron:udp?endpoint=localhost:24325";
+    private static final String NETWORK_CHANNEL =
+        "aeron:udp?endpoint=224.20.30.39:24326|interface=localhost|fc=min,t:1ns";
     private static final int STREAM_ID = 1777;
 
     private static final Set<DriverEventCode> WAIT_LIST = synchronizedSet(EnumSet.noneOf(DriverEventCode.class));
 
-    private File testDir;
-
     @AfterEach
     public void after()
     {
-        AgentTests.afterAgent();
-
-        if (testDir != null && testDir.exists())
-        {
-            IoUtil.delete(testDir, false);
-        }
+        AgentTests.stopLogging();
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void logAllNetworkChannel()
     {
         testLogMediaDriverEvents(NETWORK_CHANNEL, "all", EnumSet.of(
@@ -90,11 +86,13 @@ public class DriverLoggingAgentTest
             CMD_OUT_SUBSCRIPTION_READY,
             CMD_OUT_ON_UNAVAILABLE_COUNTER,
             CMD_OUT_COUNTER_READY,
-            CMD_IN_CLIENT_CLOSE));
+            CMD_IN_CLIENT_CLOSE,
+            FLOW_CONTROL_RECEIVER_ADDED,
+            FLOW_CONTROL_RECEIVER_REMOVED));
     }
 
     @Test
-    @Timeout(10)
+    @InterruptAfter(10)
     public void logAllIpcChannel()
     {
         testLogMediaDriverEvents(IPC_CHANNEL, "all", EnumSet.of(
@@ -125,7 +123,7 @@ public class DriverLoggingAgentTest
         "CMD_IN_ADD_SUBSCRIPTION",
         "CMD_OUT_AVAILABLE_IMAGE"
     })
-    @Timeout(10)
+    @InterruptAfter(10)
     public void logIndividualEvents(final DriverEventCode eventCode)
     {
         try
@@ -174,24 +172,23 @@ public class DriverLoggingAgentTest
                 assertEquals(counter.get(), 1);
             }
 
-            Tests.await(WAIT_LIST::isEmpty);
+            final Supplier<String> errorMessage = () -> "Pending events: " + WAIT_LIST;
+            while (!WAIT_LIST.isEmpty())
+            {
+                Tests.yieldingIdle(errorMessage);
+            }
         }
     }
 
     private void before(final String enabledEvents, final EnumSet<DriverEventCode> expectedEvents)
     {
-        System.setProperty(EventLogAgent.READER_CLASSNAME_PROP_NAME, StubEventLogReaderAgent.class.getName());
-        System.setProperty(EventConfiguration.ENABLED_EVENT_CODES_PROP_NAME, enabledEvents);
-        AgentTests.beforeAgent();
+        final EnumMap<ConfigOption, String> configOptions = new EnumMap<>(ConfigOption.class);
+        configOptions.put(ConfigOption.READER_CLASSNAME, StubEventLogReaderAgent.class.getName());
+        configOptions.put(ConfigOption.ENABLED_DRIVER_EVENT_CODES, enabledEvents);
+        AgentTests.startLogging(configOptions);
 
         WAIT_LIST.clear();
         WAIT_LIST.addAll(expectedEvents);
-
-        testDir = Paths.get(IoUtil.tmpDirName(), "driver-test").toFile();
-        if (testDir.exists())
-        {
-            IoUtil.delete(testDir, false);
-        }
     }
 
     static final class StubEventLogReaderAgent implements Agent, MessageHandler

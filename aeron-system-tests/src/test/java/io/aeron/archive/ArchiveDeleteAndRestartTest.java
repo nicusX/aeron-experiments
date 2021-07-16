@@ -21,9 +21,11 @@ import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.codecs.SourceLocation;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
+import io.aeron.test.Tests;
 import io.aeron.test.driver.MediaDriverTestWatcher;
 import io.aeron.test.driver.TestMediaDriver;
-import io.aeron.test.Tests;
 import org.agrona.CloseHelper;
 import org.agrona.SystemUtil;
 import org.agrona.concurrent.UnsafeBuffer;
@@ -31,7 +33,7 @@ import org.agrona.concurrent.YieldingIdleStrategy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.extension.TestWatcher;
 
@@ -40,6 +42,7 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class ArchiveDeleteAndRestartTest
 {
     private static final int SYNC_LEVEL = 0;
@@ -108,7 +111,7 @@ public class ArchiveDeleteAndRestartTest
         }
     }
 
-    @Timeout(10)
+    @InterruptAfter(10)
     @Test
     public void recordAndReplayExclusivePublication()
     {
@@ -126,7 +129,7 @@ public class ArchiveDeleteAndRestartTest
         {
             while (recordedPublication1.offer(buffer, 0, 1024) < 0)
             {
-                Tests.yieldingWait("Failed to offer data");
+                Tests.yieldingIdle("Failed to offer data");
             }
         }
 
@@ -135,12 +138,12 @@ public class ArchiveDeleteAndRestartTest
 
         while (aeronArchive.listRecordings(0, Integer.MAX_VALUE, collector) < 1)
         {
-            Tests.yieldingWait("Didn't find recording");
+            Tests.yieldingIdle("Didn't find recording");
         }
 
         while (position1 != aeronArchive.getRecordingPosition(collector.descriptors.get(0).recordingId))
         {
-            Tests.yieldingWait("Failed to record data");
+            Tests.yieldingIdle("Failed to record data");
         }
 
         recordedPublication1.close();
@@ -148,7 +151,7 @@ public class ArchiveDeleteAndRestartTest
 
         while (position1 != aeronArchive.getStopPosition(collector.descriptors.get(0).recordingId))
         {
-            Tests.yieldingWait("Failed to stop recording");
+            Tests.yieldingIdle("Failed to stop recording");
         }
 
         aeronArchive.close();
@@ -165,13 +168,13 @@ public class ArchiveDeleteAndRestartTest
         {
             while (recordedPublication2.offer(buffer, 0, 1024) < 0)
             {
-                Tests.yieldingWait("Failed to offer data");
+                Tests.yieldingIdle("Failed to offer data");
             }
         }
 
         while (aeronArchive.listRecordings(0, Integer.MAX_VALUE, collector) < 1)
         {
-            Tests.yieldingWait("Didn't find recording");
+            Tests.yieldingIdle("Didn't find recording");
         }
 
         collector.descriptors.clear();

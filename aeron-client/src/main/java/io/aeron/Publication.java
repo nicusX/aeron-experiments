@@ -92,6 +92,7 @@ public abstract class Publication implements AutoCloseable
     volatile boolean isClosed = false;
 
     final ReadablePosition positionLimit;
+    final UnsafeBuffer[] termBuffers;
     final UnsafeBuffer logMetaDataBuffer;
     final HeaderWriter headerWriter;
     final LogBuffers logBuffers;
@@ -119,12 +120,13 @@ public abstract class Publication implements AutoCloseable
         this.streamId = streamId;
         this.sessionId = sessionId;
         this.initialTermId = LogBufferDescriptor.initialTermId(logMetaDataBuffer);
+        this.termBuffers = logBuffers.duplicateTermBuffers();
         this.logMetaDataBuffer = logMetaDataBuffer;
+        this.logBuffers = logBuffers;
         this.originalRegistrationId = originalRegistrationId;
         this.registrationId = registrationId;
         this.positionLimit = positionLimit;
         this.channelStatusId = channelStatusId;
-        this.logBuffers = logBuffers;
         this.positionBitsToShift = LogBufferDescriptor.positionBitsToShift(termBufferLength);
         this.headerWriter = HeaderWriter.newInstance(defaultFrameHeader(logMetaDataBuffer));
     }
@@ -696,6 +698,7 @@ public abstract class Publication implements AutoCloseable
             "originalRegistrationId=" + originalRegistrationId +
             ", registrationId=" + registrationId +
             ", isClosed=" + isClosed +
+            ", isConnected=" + isConnected() +
             ", initialTermId=" + initialTermId +
             ", termBufferLength=" + termBufferLength +
             ", sessionId=" + sessionId +

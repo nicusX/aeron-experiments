@@ -26,6 +26,8 @@ import io.aeron.cluster.service.ClusteredService;
 import io.aeron.cluster.service.ClusteredServiceContainer;
 import io.aeron.driver.MediaDriver.Context;
 import io.aeron.driver.ThreadingMode;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
 import io.aeron.test.Tests;
 import io.aeron.test.cluster.ClusterTests;
 import org.agrona.CloseHelper;
@@ -35,9 +37,10 @@ import org.agrona.concurrent.Agent;
 import org.agrona.concurrent.MessageHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.File;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -50,6 +53,7 @@ import static java.util.Collections.synchronizedSet;
 import static org.agrona.BitUtil.SIZE_OF_INT;
 import static org.mockito.Mockito.mock;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class ClusterLoggingAgentTest
 {
     private static final Set<ClusterEventCode> WAIT_LIST = synchronizedSet(EnumSet.noneOf(ClusterEventCode.class));
@@ -62,7 +66,7 @@ public class ClusterLoggingAgentTest
     public void after()
     {
         CloseHelper.closeAll(clusteredMediaDriver.consensusModule(), container, clusteredMediaDriver);
-        AgentTests.afterAgent();
+        AgentTests.stopLogging();
 
         if (testDir != null && testDir.exists())
         {
@@ -71,28 +75,28 @@ public class ClusterLoggingAgentTest
     }
 
     @Test
-    @Timeout(20)
+    @InterruptAfter(20)
     public void logAll()
     {
         testClusterEventsLogging("all", EnumSet.of(ROLE_CHANGE, STATE_CHANGE, ELECTION_STATE_CHANGE));
     }
 
     @Test
-    @Timeout(20)
+    @InterruptAfter(20)
     public void logRoleChange()
     {
         testClusterEventsLogging(ROLE_CHANGE.name(), EnumSet.of(ROLE_CHANGE));
     }
 
     @Test
-    @Timeout(20)
+    @InterruptAfter(20)
     public void logStateChange()
     {
         testClusterEventsLogging(STATE_CHANGE.name(), EnumSet.of(STATE_CHANGE));
     }
 
     @Test
-    @Timeout(20)
+    @InterruptAfter(20)
     public void logElectionStateChange()
     {
         testClusterEventsLogging(ELECTION_STATE_CHANGE.name(), EnumSet.of(ELECTION_STATE_CHANGE));
@@ -128,7 +132,8 @@ public class ClusterLoggingAgentTest
             .archiveContext(aeronArchiveContext.clone())
             .clusterMemberId(0)
             .clusterMembers("0,localhost:20110,localhost:20220,localhost:20330,localhost:20440,localhost:8010")
-            .logChannel("aeron:udp?term-length=256k|control-mode=manual|control=localhost:20550");
+            .logChannel("aeron:udp?term-length=256k|control-mode=manual|control=localhost:20550")
+            .replicationChannel("aeron:udp?endpoint=localhost:0");
 
         final ClusteredService clusteredService = mock(ClusteredService.class);
         final ClusteredServiceContainer.Context clusteredServiceCtx = new ClusteredServiceContainer.Context()
@@ -153,9 +158,10 @@ public class ClusterLoggingAgentTest
 
     private void before(final String enabledEvents, final EnumSet<ClusterEventCode> expectedEvents)
     {
-        System.setProperty(EventLogAgent.READER_CLASSNAME_PROP_NAME, StubEventLogReaderAgent.class.getName());
-        System.setProperty(EventConfiguration.ENABLED_CLUSTER_EVENT_CODES_PROP_NAME, enabledEvents);
-        AgentTests.beforeAgent();
+        final EnumMap<ConfigOption, String> configOptions = new EnumMap<>(ConfigOption.class);
+        configOptions.put(ConfigOption.READER_CLASSNAME, StubEventLogReaderAgent.class.getName());
+        configOptions.put(ConfigOption.ENABLED_CLUSTER_EVENT_CODES, enabledEvents);
+        AgentTests.startLogging(configOptions);
 
         WAIT_LIST.clear();
         WAIT_LIST.addAll(expectedEvents);

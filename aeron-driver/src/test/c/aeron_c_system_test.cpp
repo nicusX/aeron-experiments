@@ -23,6 +23,8 @@
 extern "C"
 {
 #include "concurrent/aeron_atomic.h"
+#include "agent/aeron_driver_agent.h"
+#include "aeron_driver_context.h"
 }
 
 #define PUB_URI "aeron:udp?endpoint=localhost:24325"
@@ -36,6 +38,12 @@ INSTANTIATE_TEST_SUITE_P(
     CSystemTestWithParams,
     CSystemTest,
     testing::Values(std::make_tuple(PUB_URI), std::make_tuple(AERON_IPC_CHANNEL)));
+
+static int64_t set_reserved_value(void *clientd, uint8_t *buffer, size_t frame_length)
+{
+    return *(int64_t *)clientd;
+}
+
 
 TEST_P(CSystemTest, shouldSpinUpDriverAndConnectSuccessfully)
 {
@@ -51,11 +59,52 @@ TEST_P(CSystemTest, shouldSpinUpDriverAndConnectSuccessfully)
     aeron_context_close(context);
 }
 
+TEST_P(CSystemTest, shouldReallocateBindingsClientd)
+{
+    aeron_driver_context_t *context = nullptr;
+    aeron_driver_t *driver = nullptr;
+    char aeron_dir[AERON_MAX_PATH] = { 0 };
+    const char *name0 = "name0";
+    int val0 = 10;
+    const char *name1 = "name1";
+    int val1 = 11;
+
+    aeron_temp_filename(aeron_dir, AERON_MAX_PATH - 1);
+
+    aeron_env_set("AERON_UDP_CHANNEL_INCOMING_INTERCEPTORS", "loss");
+
+    ASSERT_EQ(aeron_driver_context_init(&context), 0);
+
+    aeron_driver_context_set_dir(context, aeron_dir);
+    aeron_driver_context_set_dir_delete_on_shutdown(context, true);
+
+    ASSERT_EQ(2U, context->num_bindings_clientd_entries);
+
+    context->bindings_clientd_entries[0].name = name0;
+    context->bindings_clientd_entries[0].clientd = &val0;
+    context->bindings_clientd_entries[1].name = name1;
+    context->bindings_clientd_entries[1].clientd = &val1;
+
+    aeron_driver_agent_logging_events_init("FRAME_IN", "");
+    aeron_driver_agent_init_logging_events_interceptors(context);
+
+    ASSERT_EQ(0, aeron_driver_init(&driver, context)) << aeron_errmsg();
+
+    ASSERT_EQ(3U, context->num_bindings_clientd_entries);
+
+    ASSERT_STREQ(name0, context->bindings_clientd_entries[0].name);
+    ASSERT_EQ((void *)&val0, context->bindings_clientd_entries[0].clientd);
+    ASSERT_STREQ(name1, context->bindings_clientd_entries[1].name);
+    ASSERT_EQ((void *)&val1, context->bindings_clientd_entries[1].clientd);
+
+    aeron_driver_close(driver);
+    aeron_driver_context_close(context);
+}
+
 TEST_P(CSystemTest, shouldAddAndClosePublication)
 {
     std::atomic<bool> publicationClosedFlag(false);
-    aeron_async_add_publication_t *async;
-    aeron_publication_t *publication;
+    aeron_async_add_publication_t *async = nullptr;
     aeron_publication_constants_t publication_constants;
 
     ASSERT_TRUE(connect());
@@ -63,7 +112,8 @@ TEST_P(CSystemTest, shouldAddAndClosePublication)
     ASSERT_EQ(aeron_async_add_publication(&async, m_aeron, std::get<0>(GetParam()), STREAM_ID), 0);
     std::int64_t registration_id = aeron_async_add_publication_get_registration_id(async);
 
-    ASSERT_TRUE((publication = awaitPublicationOrError(async))) << aeron_errmsg();
+    aeron_publication_t *publication = awaitPublicationOrError(async);
+    ASSERT_TRUE(publication) << aeron_errmsg();
 
     ASSERT_EQ(0, aeron_publication_constants(publication, &publication_constants)) << aeron_errmsg();
     ASSERT_EQ(registration_id, publication_constants.registration_id);
@@ -80,8 +130,7 @@ TEST_P(CSystemTest, shouldAddAndClosePublication)
 TEST_P(CSystemTest, shouldAddAndCloseExclusivePublication)
 {
     std::atomic<bool> publicationClosedFlag(false);
-    aeron_async_add_exclusive_publication_t *async;
-    aeron_exclusive_publication_t *publication;
+    aeron_async_add_exclusive_publication_t *async = nullptr;
     aeron_publication_constants_t publication_constants;
 
     ASSERT_TRUE(connect());
@@ -89,7 +138,8 @@ TEST_P(CSystemTest, shouldAddAndCloseExclusivePublication)
     ASSERT_EQ(aeron_async_add_exclusive_publication(&async, m_aeron, std::get<0>(GetParam()), STREAM_ID), 0);
     std::int64_t registration_id = aeron_async_add_exclusive_exclusive_publication_get_registration_id(async);
 
-    ASSERT_TRUE((publication = awaitExclusivePublicationOrError(async))) << aeron_errmsg();
+    aeron_exclusive_publication_t *publication = awaitExclusivePublicationOrError(async);
+    ASSERT_TRUE(publication) << aeron_errmsg();
     ASSERT_EQ(0, aeron_exclusive_publication_constants(publication, &publication_constants));
     ASSERT_EQ(registration_id, publication_constants.registration_id);
 
@@ -104,15 +154,15 @@ TEST_P(CSystemTest, shouldAddAndCloseExclusivePublication)
 TEST_P(CSystemTest, shouldAddAndCloseSubscription)
 {
     std::atomic<bool> subscriptionClosedFlag(false);
-    aeron_async_add_subscription_t *async;
-    aeron_subscription_t *subscription;
+    aeron_async_add_subscription_t *async = nullptr;
 
     ASSERT_TRUE(connect());
 
     ASSERT_EQ(aeron_async_add_subscription(
         &async, m_aeron, std::get<0>(GetParam()), STREAM_ID, nullptr, nullptr, nullptr, nullptr), 0);
 
-    ASSERT_TRUE((subscription = awaitSubscriptionOrError(async))) << aeron_errmsg();
+    aeron_subscription_t *subscription = awaitSubscriptionOrError(async);
+    ASSERT_TRUE(subscription) << aeron_errmsg();
 
     aeron_subscription_close(subscription, setFlagOnClose, &subscriptionClosedFlag);
 
@@ -125,8 +175,7 @@ TEST_P(CSystemTest, shouldAddAndCloseSubscription)
 TEST_P(CSystemTest, shouldAddAndCloseCounter)
 {
     std::atomic<bool> counterClosedFlag(false);
-    aeron_async_add_counter_t *async;
-    aeron_counter_t *counter;
+    aeron_async_add_counter_t *async = nullptr;
     aeron_counter_constants_t counter_constants;
 
     ASSERT_TRUE(connect());
@@ -135,7 +184,8 @@ TEST_P(CSystemTest, shouldAddAndCloseCounter)
         &async, m_aeron, 12, nullptr, 0, "my counter", strlen("my counter")), 0);
     std::int64_t registration_id = aeron_async_add_counter_get_registration_id(async);
 
-    ASSERT_TRUE((counter = awaitCounterOrError(async))) << aeron_errmsg();
+    aeron_counter_t *counter = awaitCounterOrError(async);
+    ASSERT_TRUE(counter) << aeron_errmsg();
     ASSERT_EQ(0, aeron_counter_constants(counter, &counter_constants));
     ASSERT_EQ(registration_id, counter_constants.registration_id);
 
@@ -149,21 +199,21 @@ TEST_P(CSystemTest, shouldAddAndCloseCounter)
 
 TEST_P(CSystemTest, shouldAddPublicationAndSubscription)
 {
-    aeron_async_add_publication_t *async_pub;
-    aeron_publication_t *publication;
-    aeron_async_add_subscription_t *async_sub;
-    aeron_subscription_t *subscription;
+    aeron_async_add_publication_t *async_pub = nullptr;
+    aeron_async_add_subscription_t *async_sub = nullptr;
 
     ASSERT_TRUE(connect());
 
     ASSERT_EQ(aeron_async_add_publication(&async_pub, m_aeron, std::get<0>(GetParam()), STREAM_ID), 0);
 
-    ASSERT_TRUE((publication = awaitPublicationOrError(async_pub))) << aeron_errmsg();
+    aeron_publication_t *publication = awaitPublicationOrError(async_pub);
+    ASSERT_TRUE(publication) << aeron_errmsg();
 
     ASSERT_EQ(aeron_async_add_subscription(
         &async_sub, m_aeron, std::get<0>(GetParam()), STREAM_ID, nullptr, nullptr, nullptr, nullptr), 0);
 
-    ASSERT_TRUE((subscription = awaitSubscriptionOrError(async_sub))) << aeron_errmsg();
+    aeron_subscription_t *subscription = awaitSubscriptionOrError(async_sub);
+    ASSERT_TRUE(subscription) << aeron_errmsg();
 
     awaitConnected(subscription);
 
@@ -173,22 +223,26 @@ TEST_P(CSystemTest, shouldAddPublicationAndSubscription)
 
 TEST_P(CSystemTest, shouldOfferAndPollOneMessage)
 {
-    aeron_async_add_publication_t *async_pub;
-    aeron_publication_t *publication;
-    aeron_async_add_subscription_t *async_sub;
-    aeron_subscription_t *subscription;
+    aeron_async_add_publication_t *async_pub = nullptr;
+    aeron_async_add_subscription_t *async_sub = nullptr;
     const char message[] = "message";
 
     ASSERT_TRUE(connect());
     ASSERT_EQ(aeron_async_add_publication(&async_pub, m_aeron, std::get<0>(GetParam()), STREAM_ID), 0);
-    ASSERT_TRUE((publication = awaitPublicationOrError(async_pub))) << aeron_errmsg();
+
+    aeron_publication_t *publication = awaitPublicationOrError(async_pub);
+    ASSERT_TRUE(publication) << aeron_errmsg();
+
     ASSERT_EQ(aeron_async_add_subscription(
         &async_sub, m_aeron, std::get<0>(GetParam()), STREAM_ID, nullptr, nullptr, nullptr, nullptr), 0);
-    ASSERT_TRUE((subscription = awaitSubscriptionOrError(async_sub))) << aeron_errmsg();
+
+    aeron_subscription_t *subscription = awaitSubscriptionOrError(async_sub);
+    ASSERT_TRUE(subscription) << aeron_errmsg();
     awaitConnected(subscription);
+    int64_t reserved_value = 0x12345678;
 
     while (aeron_publication_offer(
-        publication, (const uint8_t *)message, strlen(message), nullptr, nullptr) < 0)
+        publication, (const uint8_t *)message, strlen(message), set_reserved_value, &reserved_value) < 0)
     {
         std::this_thread::yield();
     }
@@ -198,6 +252,9 @@ TEST_P(CSystemTest, shouldOfferAndPollOneMessage)
     poll_handler_t handler = [&](const uint8_t *buffer, size_t length, aeron_header_t *header)
     {
         EXPECT_EQ(length, strlen(message));
+        aeron_header_values_t header_values;
+        aeron_header_values(header, &header_values);
+        ASSERT_EQ(reserved_value, header_values.frame.reserved_value);
         called = true;
     };
 
@@ -214,10 +271,8 @@ TEST_P(CSystemTest, shouldOfferAndPollOneMessage)
 
 TEST_P(CSystemTest, shouldOfferAndPollThreeTermsOfMessages)
 {
-    aeron_async_add_publication_t *async_pub;
-    aeron_publication_t *publication;
-    aeron_async_add_subscription_t *async_sub;
-    aeron_subscription_t *subscription;
+    aeron_async_add_publication_t *async_pub = nullptr;
+    aeron_async_add_subscription_t *async_sub = nullptr;
     const char message[1024] = "message";
     size_t num_messages = 64 * 3 + 1;
     const char *uri = std::get<0>(GetParam());
@@ -226,16 +281,20 @@ TEST_P(CSystemTest, shouldOfferAndPollThreeTermsOfMessages)
 
     ASSERT_TRUE(connect());
     ASSERT_EQ(aeron_async_add_publication(&async_pub, m_aeron, pubUri.c_str(), STREAM_ID), 0);
-    ASSERT_TRUE((publication = awaitPublicationOrError(async_pub))) << aeron_errmsg();
+
+    aeron_publication_t *publication = awaitPublicationOrError(async_pub);
+    ASSERT_TRUE(publication) << aeron_errmsg();
     ASSERT_EQ(aeron_async_add_subscription(
         &async_sub, m_aeron, uri, STREAM_ID, nullptr, nullptr, nullptr, nullptr), 0);
-    ASSERT_TRUE((subscription = awaitSubscriptionOrError(async_sub))) << aeron_errmsg();
+
+    aeron_subscription_t *subscription = awaitSubscriptionOrError(async_sub);
+    ASSERT_TRUE(subscription) << aeron_errmsg();
     awaitConnected(subscription);
 
     for (size_t i = 0; i < num_messages; i++)
     {
         while (aeron_publication_offer(
-            publication, (const uint8_t *) message, sizeof(message), nullptr, nullptr) < 0)
+            publication, (const uint8_t *)message, sizeof(message), nullptr, nullptr) < 0)
         {
             std::this_thread::yield();
         }
@@ -262,10 +321,8 @@ TEST_P(CSystemTest, shouldOfferAndPollThreeTermsOfMessages)
 
 TEST_P(CSystemTest, shouldOfferAndPollThreeTermsOfMessagesWithTryClaim)
 {
-    aeron_async_add_publication_t *async_pub;
-    aeron_publication_t *publication;
-    aeron_async_add_subscription_t *async_sub;
-    aeron_subscription_t *subscription;
+    aeron_async_add_publication_t *async_pub = nullptr;
+    aeron_async_add_subscription_t *async_sub = nullptr;
     const char message[1024] = "message";
     size_t num_messages = 64 * 3 + 1;
     const char *uri = std::get<0>(GetParam());
@@ -274,10 +331,14 @@ TEST_P(CSystemTest, shouldOfferAndPollThreeTermsOfMessagesWithTryClaim)
 
     ASSERT_TRUE(connect());
     ASSERT_EQ(aeron_async_add_publication(&async_pub, m_aeron, pubUri.c_str(), STREAM_ID), 0);
-    ASSERT_TRUE((publication = awaitPublicationOrError(async_pub))) << aeron_errmsg();
+
+    aeron_publication_t *publication = awaitPublicationOrError(async_pub);
+    ASSERT_TRUE(publication) << aeron_errmsg();
     ASSERT_EQ(aeron_async_add_subscription(
         &async_sub, m_aeron, uri, STREAM_ID, nullptr, nullptr, nullptr, nullptr), 0);
-    ASSERT_TRUE((subscription = awaitSubscriptionOrError(async_sub))) << aeron_errmsg();
+
+    aeron_subscription_t *subscription = awaitSubscriptionOrError(async_sub);
+    ASSERT_TRUE(subscription) << aeron_errmsg();
     awaitConnected(subscription);
 
     for (size_t i = 0; i < num_messages; i++)
@@ -314,10 +375,8 @@ TEST_P(CSystemTest, shouldOfferAndPollThreeTermsOfMessagesWithTryClaim)
 
 TEST_P(CSystemTest, shouldOfferAndPollThreeTermsOfMessagesWithExclusivePublicationTryClaim)
 {
-    aeron_async_add_publication_t *async_pub;
-    aeron_exclusive_publication_t *publication;
-    aeron_async_add_subscription_t *async_sub;
-    aeron_subscription_t *subscription;
+    aeron_async_add_publication_t *async_pub = nullptr;
+    aeron_async_add_subscription_t *async_sub = nullptr;
     const char message[1024] = "message";
     size_t num_messages = 64 * 3 + 1;
     const char *uri = std::get<0>(GetParam());
@@ -326,10 +385,14 @@ TEST_P(CSystemTest, shouldOfferAndPollThreeTermsOfMessagesWithExclusivePublicati
 
     ASSERT_TRUE(connect());
     ASSERT_EQ(aeron_async_add_exclusive_publication(&async_pub, m_aeron, pubUri.c_str(), STREAM_ID), 0);
-    ASSERT_TRUE((publication = awaitExclusivePublicationOrError(async_pub))) << aeron_errmsg();
+
+    aeron_exclusive_publication_t *publication = awaitExclusivePublicationOrError(async_pub);
+    ASSERT_TRUE(publication) << aeron_errmsg();
     ASSERT_EQ(aeron_async_add_subscription(
         &async_sub, m_aeron, uri, STREAM_ID, nullptr, nullptr, nullptr, nullptr), 0);
-    ASSERT_TRUE((subscription = awaitSubscriptionOrError(async_sub))) << aeron_errmsg();
+
+    aeron_subscription_t *subscription = awaitSubscriptionOrError(async_sub);
+    ASSERT_TRUE(subscription) << aeron_errmsg();
     awaitConnected(subscription);
 
     for (size_t i = 0; i < num_messages; i++)
@@ -366,10 +429,8 @@ TEST_P(CSystemTest, shouldOfferAndPollThreeTermsOfMessagesWithExclusivePublicati
 
 TEST_P(CSystemTest, shouldAllowImageToGoUnavailableWithNoPollAfter)
 {
-    aeron_async_add_publication_t *async_pub;
-    aeron_publication_t *publication;
-    aeron_async_add_subscription_t *async_sub;
-    aeron_subscription_t *subscription;
+    aeron_async_add_publication_t *async_pub = nullptr;
+    aeron_async_add_subscription_t *async_sub = nullptr;
     const char message[1024] = "message";
     size_t num_messages = 11;
     std::atomic<bool> on_unavailable_image_called = { false };
@@ -384,16 +445,20 @@ TEST_P(CSystemTest, shouldAllowImageToGoUnavailableWithNoPollAfter)
 
     ASSERT_TRUE(connect());
     ASSERT_EQ(aeron_async_add_publication(&async_pub, m_aeron, pubUri.c_str(), STREAM_ID), 0);
-    ASSERT_TRUE((publication = awaitPublicationOrError(async_pub))) << aeron_errmsg();
+
+    aeron_publication_t *publication = awaitPublicationOrError(async_pub);
+    ASSERT_TRUE(publication) << aeron_errmsg();
     ASSERT_EQ(aeron_async_add_subscription(
         &async_sub, m_aeron, uri, STREAM_ID, nullptr, nullptr, onUnavailableImage, this), 0);
-    ASSERT_TRUE((subscription = awaitSubscriptionOrError(async_sub))) << aeron_errmsg();
+
+    aeron_subscription_t *subscription = awaitSubscriptionOrError(async_sub);
+    ASSERT_TRUE(subscription) << aeron_errmsg();
     awaitConnected(subscription);
 
     for (size_t i = 0; i < num_messages; i++)
     {
         while (aeron_publication_offer(
-            publication, (const uint8_t *) message, sizeof(message), nullptr, nullptr) < 0)
+            publication, (const uint8_t *)message, sizeof(message), nullptr, nullptr) < 0)
         {
             std::this_thread::yield();
         }
@@ -426,10 +491,8 @@ TEST_P(CSystemTest, shouldAllowImageToGoUnavailableWithNoPollAfter)
 
 TEST_P(CSystemTest, shouldAllowImageToGoUnavailableWithPollAfter)
 {
-    aeron_async_add_publication_t *async_pub;
-    aeron_publication_t *publication;
-    aeron_async_add_subscription_t *async_sub;
-    aeron_subscription_t *subscription;
+    aeron_async_add_publication_t *async_pub = nullptr;
+    aeron_async_add_subscription_t *async_sub = nullptr;
     const char message[1024] = "message";
     size_t num_messages = 11;
     std::atomic<bool> on_unavailable_image_called = { false };
@@ -444,16 +507,20 @@ TEST_P(CSystemTest, shouldAllowImageToGoUnavailableWithPollAfter)
 
     ASSERT_TRUE(connect());
     ASSERT_EQ(aeron_async_add_publication(&async_pub, m_aeron, pubUri.c_str(), STREAM_ID), 0);
-    ASSERT_TRUE((publication = awaitPublicationOrError(async_pub))) << aeron_errmsg();
+
+    aeron_publication_t *publication = awaitPublicationOrError(async_pub);
+    ASSERT_TRUE(publication) << aeron_errmsg();
     ASSERT_EQ(aeron_async_add_subscription(
         &async_sub, m_aeron, uri, STREAM_ID, nullptr, nullptr, onUnavailableImage, this), 0);
-    ASSERT_TRUE((subscription = awaitSubscriptionOrError(async_sub))) << aeron_errmsg();
+
+    aeron_subscription_t *subscription = awaitSubscriptionOrError(async_sub);
+    ASSERT_TRUE(subscription) << aeron_errmsg();
     awaitConnected(subscription);
 
     for (size_t i = 0; i < num_messages; i++)
     {
         while (aeron_publication_offer(
-            publication, (const uint8_t *) message, sizeof(message), nullptr, nullptr) < 0)
+            publication, (const uint8_t *)message, sizeof(message), nullptr, nullptr) < 0)
         {
             std::this_thread::yield();
         }
@@ -489,4 +556,3 @@ TEST_P(CSystemTest, shouldAllowImageToGoUnavailableWithPollAfter)
 
     EXPECT_EQ(aeron_subscription_close(subscription, nullptr, nullptr), 0);
 }
-

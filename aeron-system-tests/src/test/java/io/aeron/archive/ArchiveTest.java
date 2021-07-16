@@ -26,15 +26,17 @@ import io.aeron.driver.ThreadingMode;
 import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.FrameDescriptor;
 import io.aeron.logbuffer.Header;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
+import io.aeron.test.Tests;
 import io.aeron.test.driver.MediaDriverTestWatcher;
 import io.aeron.test.driver.TestMediaDriver;
-import io.aeron.test.Tests;
 import org.agrona.*;
 import org.agrona.collections.MutableBoolean;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.agrona.concurrent.YieldingIdleStrategy;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.extension.TestWatcher;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -53,6 +55,7 @@ import static org.agrona.BufferUtil.allocateDirectAligned;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class ArchiveTest
 {
     private static Stream<Arguments> threadingModes()
@@ -64,11 +67,11 @@ public class ArchiveTest
     }
 
     private static final String CONTROL_RESPONSE_URI = CommonContext.IPC_CHANNEL;
-    private static final int CONTROL_RESPONSE_STREAM_ID = 100;
+    private static final int CONTROL_RESPONSE_STREAM_ID = AeronArchive.Configuration.controlResponseStreamId();
     private static final String REPLAY_URI = CommonContext.IPC_CHANNEL;
     private static final int MESSAGE_COUNT = 5000;
     private static final int SYNC_LEVEL = 0;
-    private static final int PUBLISH_STREAM_ID = 1;
+    private static final int PUBLISH_STREAM_ID = 1033;
     private static final int MAX_FRAGMENT_SIZE = 1024;
     private static final int REPLAY_STREAM_ID = 101;
 
@@ -200,7 +203,7 @@ public class ArchiveTest
 
     @ParameterizedTest
     @MethodSource("threadingModes")
-    @Timeout(10)
+    @InterruptAfter(10)
     public void recordAndReplayExclusivePublication(
         final ThreadingMode threadingMode, final ArchiveThreadingMode archiveThreadingMode)
     {
@@ -238,7 +241,7 @@ public class ArchiveTest
 
     @ParameterizedTest
     @MethodSource("threadingModes")
-    @Timeout(10)
+    @InterruptAfter(10)
     public void replayExclusivePublicationWhileRecording(
         final ThreadingMode threadingMode, final ArchiveThreadingMode archiveThreadingMode)
     {
@@ -280,7 +283,7 @@ public class ArchiveTest
 
     @ParameterizedTest
     @MethodSource("threadingModes")
-    @Timeout(10)
+    @InterruptAfter(10)
     public void recordAndReplayConcurrentPublication(
         final ThreadingMode threadingMode, final ArchiveThreadingMode archiveThreadingMode)
     {

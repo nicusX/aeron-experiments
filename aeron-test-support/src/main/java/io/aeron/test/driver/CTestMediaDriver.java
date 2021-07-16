@@ -73,10 +73,11 @@ public final class CTestMediaDriver implements TestMediaDriver
 
     public void close()
     {
+        final boolean isInterrupted = Thread.interrupted();
         try
         {
-            terminateDriver();
-            if (!aeronMediaDriverProcess.waitFor(10, TimeUnit.SECONDS))
+            final boolean hasSentTerminateSignal = terminateDriver();
+            if (!hasSentTerminateSignal || !aeronMediaDriverProcess.waitFor(10, TimeUnit.SECONDS))
             {
                 aeronMediaDriverProcess.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
                 throw new RuntimeException("Failed to shutdown cleanly, forced close");
@@ -91,6 +92,13 @@ public final class CTestMediaDriver implements TestMediaDriver
         {
             throw new RuntimeException("Interrupted while waiting for shutdown", ex);
         }
+        finally
+        {
+            if (isInterrupted)
+            {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     public CountersReader counters()
@@ -100,11 +108,20 @@ public final class CTestMediaDriver implements TestMediaDriver
         return new CountersReader(context.countersMetaDataBuffer(), context.countersValuesBuffer());
     }
 
-    private void terminateDriver()
+    private boolean terminateDriver()
     {
-        CommonContext.requestDriverTermination(new File(context.aeronDirectoryName()), null, 0, 0);
+        try
+        {
+            CommonContext.requestDriverTermination(new File(context.aeronDirectoryName()), null, 0, 0);
+            return true;
+        }
+        catch (final Throwable t)
+        {
+            return false;
+        }
     }
 
+    @SuppressWarnings("methodlength")
     public static CTestMediaDriver launch(
         final MediaDriver.Context context, final DriverOutputConsumer driverOutputConsumer)
     {
@@ -170,6 +187,14 @@ public final class CTestMediaDriver implements TestMediaDriver
         environment.put("AERON_SOCKET_SO_RCVBUF", String.valueOf(context.socketRcvbufLength()));
         environment.put("AERON_SOCKET_SO_SNDBUF", String.valueOf(context.socketSndbufLength()));
         environment.put("AERON_RCV_INITIAL_WINDOW_LENGTH", String.valueOf(context.initialWindowLength()));
+        environment.put("AERON_PUBLICATION_UNBLOCK_TIMEOUT", String.valueOf(context.publicationUnblockTimeoutNs()));
+        final NameResolver nameResolver = context.nameResolver();
+        if (nameResolver instanceof RedirectingNameResolver)
+        {
+            final String csvConfiguration = ((RedirectingNameResolver)nameResolver).csvConfiguration();
+            environment.put("AERON_NAME_RESOLVER_SUPPLIER", "csv_table");
+            environment.put("AERON_NAME_RESOLVER_INIT_ARGS", csvConfiguration);
+        }
 
         setFlowControlStrategy(environment, context);
         setLogging(environment);
@@ -180,6 +205,7 @@ public final class CTestMediaDriver implements TestMediaDriver
             File stdoutFile = NULL_FILE;
             File stderrFile = NULL_FILE;
 
+            final ProcessBuilder pb = new ProcessBuilder(aeronBinary.getAbsolutePath());
             if (null != driverOutputConsumer)
             {
                 stdoutFile = File.createTempFile("CTestMediaDriver-", ".out");
@@ -189,7 +215,6 @@ public final class CTestMediaDriver implements TestMediaDriver
                 driverOutputConsumer.environmentVariables(context.aeronDirectoryName(), environment);
             }
 
-            final ProcessBuilder pb = new ProcessBuilder(aeronBinary.getAbsolutePath());
             pb.environment().putAll(environment);
             pb.redirectOutput(stdoutFile).redirectError(stderrFile);
             final Process process = pb.start();
@@ -206,7 +231,8 @@ public final class CTestMediaDriver implements TestMediaDriver
 
     private static void setLogging(final Map<String, String> environment)
     {
-        environment.put("AERON_EVENT_LOG", "admin");
+        environment.put("AERON_EVENT_LOG", System.getProperty("aeron.event.log", "admin,NAME_RESOLUTION_RESOLVE"));
+        environment.put("AERON_EVENT_LOG_DISABLE", System.getProperty("aeron.event.log.disable", ""));
 
         final String driverAgentPath = System.getProperty(DRIVER_AGENT_PATH_PROP_NAME);
         if (null == driverAgentPath)
@@ -297,13 +323,5 @@ public final class CTestMediaDriver implements TestMediaDriver
 
         // This is a bit of an ugly hack to decorate the MediaDriver.Context with additional information.
         C_DRIVER_ADDITIONAL_ENV_VARS.get().put(context, lossTransportEnv);
-    }
-
-    public static void enableCsvNameLookupConfiguration(final MediaDriver.Context context, final String csvLookupTable)
-    {
-        final Object2ObjectHashMap<String, String> csvTableEnv = new Object2ObjectHashMap<>();
-        csvTableEnv.put("AERON_NAME_RESOLVER_SUPPLIER", "csv_table");
-        csvTableEnv.put("AERON_NAME_RESOLVER_INIT_ARGS", csvLookupTable);
-        C_DRIVER_ADDITIONAL_ENV_VARS.get().put(context, csvTableEnv);
     }
 }
